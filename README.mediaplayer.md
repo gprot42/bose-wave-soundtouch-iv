@@ -178,12 +178,14 @@ gerbera --config bosman-soundtouch-iv-controller/gerbera/config.xml
 | App | Cost | Notes |
 |-----|------|-------|
 | **`send-to-bose.py`** | Free (included) | Zero-install Python script. Auto-discovers Bose via SSDP, serves local files, sends SOAP play commands. `python3 tools/send-to-bose.py song.mp3` |
-| **Elmedia Player** | Free / Pro | Native macOS app; supports casting to DLNA renderers via the toolbar cast button. [elmedia-player.com](https://www.elmedia-player.com) |
+| **Elmedia Player** | Free / Pro | Native macOS app with a toolbar cast button that discovers UPnP/DLNA renderers. Pro licence unlocks renderer casting. [elmedia-player.com](https://www.elmedia-player.com) |
+| **Swinsian** | Paid (one-time) | Native macOS music player (iTunes-style library). Has built-in DLNA renderer support — select the Bose as output device from the menu bar. [swinsian.com](https://swinsian.com) |
+| **foobar2000** | Free | The UPnP output plugin (`foo_upnp`) is Windows-only. The macOS version of foobar2000 does **not** support UPnP renderer output. Do not rely on this on Mac. [foobar2000.org](https://www.foobar2000.org/mac) |
 
 > **VLC limitation**: VLC 3.x "Playback → Renderer" discovers only **Chromecast** and
 > **AirPlay** devices via Bonjour/mDNS. It has no UPnP `MediaRenderer:1` renderer
 > discovery. The Bose will never appear in VLC's Renderer menu. Use
-> `send-to-bose.py` or Elmedia Player instead.
+> `send-to-bose.py`, Elmedia Player, or Swinsian instead.
 
 **`send-to-bose.py` step-by-step:**
 ```sh
