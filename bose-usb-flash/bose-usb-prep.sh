@@ -886,14 +886,19 @@ main() {
 
     if $MODE_FLASH; then
         echo -e "${BOLD}Next steps — firmware flash:${RESET}"
-        echo "  1. Make sure the pedestal is powered on."
-        echo "  2. Insert the USB stick into the USB-A port on the BACK of the pedestal."
-        echo "  3. Wait up to 30 seconds for the pedestal to detect the file."
-        echo "     If nothing happens: pull the AC cord, plug back in WITH the USB inserted."
-        echo "  4. Do NOT unplug power or USB during the update (2–5 minutes)."
-        echo "  5. The pedestal reboots automatically when done. Remove the USB stick."
-        echo "  6. Hold the Control button (~3 s) → solid amber → WiFi setup mode."
-        echo "  7. Join 'Bose Wave ST (…)' WiFi on your phone, open BosMan, enter home WiFi."
+        echo "  The pedestal does NOT auto-detect Update.stu on normal boot."
+        echo "  You must force it into firmware-update mode with a button sequence."
+        echo ""
+        echo "  1. Unplug the AC power cord from the pedestal completely."
+        echo "  2. Insert the USB stick into the SETUP B (USB-A) port on the BACK of the pedestal."
+        echo "  3. Hold Button 4 + Volume Down (−) simultaneously — keep holding."
+        echo "  4. While still holding those buttons, plug the AC power cord back in."
+        echo "  5. Keep holding until the display shows a 'prohibited hand' (circle-slash) symbol,"
+        echo "     then release."
+        echo "  6. Wait up to 5 minutes — do NOT touch power or USB while the update runs."
+        echo "  7. The pedestal reboots automatically when done. Remove the USB stick."
+        echo "  8. Hold the Control button (~3 s) → solid amber → WiFi setup mode."
+        echo "  9. Join 'Bose Wave ST (…)' WiFi on your phone, open BosMan, enter home WiFi."
         echo ""
     fi
 
