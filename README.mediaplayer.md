@@ -17,11 +17,27 @@ The fastest path to audio on the Bose today, with zero server setup:
 3. Go to **Library → Local** (your phone's music) → tap a track → **Play**.
 4. Audio plays on the Bose. Done.
 
-**Mac — VLC**
-1. Open [VLC](https://www.videolan.org/vlc/), drag any audio file into the playlist.
-2. Menu: **Playback → Renderer → Scan** → wait ~5 s.
-3. Click **"Bose SoundTouch 90E9CA"** when it appears.
-4. Press Play — audio goes to the Bose, not your Mac speakers.
+**Mac — Python script (no installs)**
+```sh
+# Play a local file
+python3 tools/send-to-bose.py /path/to/song.mp3
+
+# Play an internet-radio URL
+python3 tools/send-to-bose.py http://stream.example.com/radio.mp3
+
+# Stop
+python3 tools/send-to-bose.py --stop
+
+# Set volume (0-100)
+python3 tools/send-to-bose.py --volume 40
+```
+The script auto-discovers the Bose via SSDP, serves local files via a temporary
+HTTP server, and sends SOAP commands directly — no VLC, no plugins.
+
+> **Note on VLC**: VLC 3.x "Playback → Renderer" only discovers **Chromecast** and
+> **AirPlay** devices. It does not discover standard UPnP/DLNA `MediaRenderer:1`
+> devices, so the Bose will never appear there. Use the Python script or
+> **Elmedia Player** instead.
 
 ---
 
@@ -111,7 +127,7 @@ Bose renderer to play.
 
 ```mermaid
 flowchart LR
-    App["📱 BubbleUPnP / Hi-Fi Cast<br/>(Android)<br/>or VLC (Mac)"]
+    App["📱 BubbleUPnP / Hi-Fi Cast<br/>(Android)<br/>or send-to-bose.py (Mac)"]
     MS["🗄 Media Server<br/>Gerbera / Plex / UMS"]
     Bose["Bose SoundTouch IV<br/>[MediaRenderer]"]
     Speaker["🔊 Output"]
@@ -161,16 +177,25 @@ gerbera --config bosman-soundtouch-iv-controller/gerbera/config.xml
 
 | App | Cost | Notes |
 |-----|------|-------|
-| **VLC** | Free | Playback → Renderer → Scan → select Bose. Works with any file format. [videolan.org](https://www.videolan.org/vlc/) |
-| **Elmedia Player** | Free / Pro | Native macOS app; supports casting to DLNA renderers via the toolbar. [elmedia-player.com](https://www.elmedia-player.com) |
+| **`send-to-bose.py`** | Free (included) | Zero-install Python script. Auto-discovers Bose via SSDP, serves local files, sends SOAP play commands. `python3 tools/send-to-bose.py song.mp3` |
+| **Elmedia Player** | Free / Pro | Native macOS app; supports casting to DLNA renderers via the toolbar cast button. [elmedia-player.com](https://www.elmedia-player.com) |
 
-**VLC step-by-step:**
-1. Open VLC and add your audio file to the playlist.
-2. Menu: **Playback → Renderer → Scan for devices**.
-3. Wait ~5 seconds — "Bose SoundTouch 90E9CA" appears in the list.
-4. Click it to select it as the renderer.
-5. Press **Play** — audio plays through the Bose, not your Mac speakers.
-6. To stop rendering to Bose: **Playback → Renderer → (none)**.
+> **VLC limitation**: VLC 3.x "Playback → Renderer" discovers only **Chromecast** and
+> **AirPlay** devices via Bonjour/mDNS. It has no UPnP `MediaRenderer:1` renderer
+> discovery. The Bose will never appear in VLC's Renderer menu. Use
+> `send-to-bose.py` or Elmedia Player instead.
+
+**`send-to-bose.py` step-by-step:**
+```sh
+# From the repo root:
+python3 tools/send-to-bose.py /path/to/music.mp3
+# → "Scanning for DLNA renderers (4s) ..."
+# → "Found: Bose SoundTouch 90E9CA"
+# → "Serving: /path/to/music.mp3"
+# → "Playing. Press Ctrl+C to stop."
+```
+The Bose fetches the file directly from your Mac over HTTP while the script is running.
+Press Ctrl+C to stop playback and shut down the temporary server.
 
 ---
 
@@ -282,7 +307,7 @@ open http://localhost:49494
 | What you want to do | Works? | How |
 |--------------------|--------|-----|
 | Play files from Android phone | Yes | BubbleUPnP → Renderer = Bose |
-| Play files from Mac | Yes | VLC → Renderer = Bose |
+| Play files from Mac | Yes | `python3 tools/send-to-bose.py file.mp3` or Elmedia Player |
 | Browse Mac music library in BosMan | Yes | Run UMS/Gerbera on Mac + BosMan Media tab |
 | Browse Mac music library in BubbleUPnP | Yes | Run UMS/Gerbera on Mac + BubbleUPnP Library → UPnP/DLNA |
 | Internet radio on the Bose | Yes | BubbleUPnP → Internet Radio → Renderer = Bose |
@@ -298,6 +323,7 @@ open http://localhost:49494
 
 | File | Contents |
 |------|---------|
+| [`tools/send-to-bose.py`](tools/send-to-bose.py) | Python DLNA sender — play any file or stream on the Bose from macOS |
 | [`bose-usb-flash/README.flash.md`](bose-usb-flash/README.flash.md) | Offline USB firmware reflash procedure |
 | [`bosman-soundtouch-iv-controller/README.md`](bosman-soundtouch-iv-controller/README.md) | BosMan app overview and quick-start |
 | [`bosman-soundtouch-iv-controller/README.SoundTouchIV-wifi.md`](bosman-soundtouch-iv-controller/README.SoundTouchIV-wifi.md) | Wi-Fi setup protocol, field diagnostics, root-cause analysis |
