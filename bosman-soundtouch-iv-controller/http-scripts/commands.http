@@ -1,0 +1,17 @@
+@baseUrl = http://localhost:5173/api/command
+@ip = 192.168.0.100
+
+### Power
+POST {{baseUrl}}/power/{{ip}}
+
+### Play
+POST {{baseUrl}}/play/{{ip}}
+
+### Pause
+POST {{baseUrl}}/pause/{{ip}}
+
+### Stop
+POST {{baseUrl}}/stop/{{ip}}
+
+### Press Key (Fallback)
+POST {{baseUrl}}/PRESET_1/{{ip}}

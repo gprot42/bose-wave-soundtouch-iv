@@ -1,0 +1,49 @@
+@ip = 192.168.178.53
+
+### Play
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="press" sender="Gabbo">PLAY</key>
+
+### Release Play
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="release" sender="Gabbo">PLAY</key>
+
+### Stop
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="press" sender="Gabbo">STOP</key>
+
+### Release Stop
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="release" sender="Gabbo">STOP</key>
+
+### Pause
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="press" sender="Gabbo">PAUSE</key>
+
+### Release Pause
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="release" sender="Gabbo">PAUSE</key>
+
+### Play/Pause Toggle
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="press" sender="Gabbo">PLAY_PAUSE</key>
+
+### Release Play/Pause Toggle
+POST http://{{ip}}:8090/key
+Content-Type: application/xml
+
+<key state="release" sender="Gabbo">PLAY_PAUSE</key>

@@ -1,0 +1,7 @@
+@device_ip = 192.168.0.100
+
+### Store Preset 1
+POST http://{{device_ip}}:8090/storePreset
+Content-Type: text/xml
+
+<preset id="1"><ContentItem source="INTERNET_RADIO" location="12345" sourceAccount="" isPresetable="true"><itemName>My Favorite Station</itemName></ContentItem></preset>

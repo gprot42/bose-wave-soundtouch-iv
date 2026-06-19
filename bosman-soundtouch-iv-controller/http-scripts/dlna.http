@@ -1,0 +1,143 @@
+@ip = 192.168.0.100
+@sourceAccount = fa095ecc-e13e-40e7-8e6c-485D350B36C7/0
+@msIp = 192.168.0.11
+@msPort = 49000
+@controlUrl = /MediaServer/ContentDirectory/Control
+@objectId = 4:cont2:150:0:0:
+
+
+### GET request to example server
+GET http://{{ip}}:8090/listMediaServers
+
+### set a media server
+#	source → welcher Dienst/Typ (hier: STORED_MUSIC)
+#	displayName → wie die Quelle im UI heißen soll
+#	<user> → eindeutige ID dieser Quelle (wird später zu sourceAccount)
+#	<pass> → Auth-Kram (bei Fritzbox & Co leer)
+#
+POST http://{{ip}}:8090/setMusicServiceAccount
+Content-Type: application/xml
+
+<credentials source="STORED_MUSIC" displayName="AVM FRITZ!Mediaserver">
+  <user>fa095ecc-e13e-40e7-8e6c-485D350B36C7</user>
+  <pass/>
+</credentials>
+
+### remove media server
+POST http://{{ip}}:8090/removeMusicServiceAccount
+Content-Type: application/xml
+
+<credentials source="STORED_MUSIC" displayName="AVM FRITZ!Mediaserver">
+  <user>fa095ecc-e13e-40e7-8e6c-485D350B36C7</user>
+  <pass/>
+</credentials>
+
+### List sources
+GET http://{{ip}}:8090/sources
+
+### Browse root of a source (DLNA/STORED_MUSIC)
+POST http://{{ip}}:8090/browse
+Content-Type: application/xml
+
+<browse source="STORED_MUSIC" sourceAccount="{{sourceAccount}}">
+  <startItem>1</startItem>
+  <numItems>200</numItems>
+</browse>
+
+### Browse a specific folder/container inside the source
+### 1) First call /browse root, copy a "location" value from the response,
+### 2) paste it below into <containerLocation>
+@containerLocation = REPLACE_WITH_LOCATION_FROM_BROWSE_RESPONSE
+
+POST http://{{ip}}:8090/browse
+Content-Type: application/xml
+
+<browse source="STORED_MUSIC" sourceAccount="{{sourceAccount}}">
+  <containerLocation>{{containerLocation}}</containerLocation>
+  <startItem>1</startItem>
+  <numItems>200</numItems>
+</browse>
+
+### show whats playing now
+GET http://{{ip}}:8090/now_playing
+
+### show whats playing now Bose offical doc
+GET http://{{ip}}:8090/nowPlaying
+
+### Search a source for streams
+POST http://{{ip}}:8090/search
+Content-Type: application/xml
+
+<search source="STORED_MUSIC"
+  sourceAccount="fa095ecc-e13e-40e7-8e6c-485D350B36C7/0">
+  <startItem>1</startItem>
+  <numItems>50</numItems>
+  <searchTerm filter="track">Alter</searchTerm>
+</search>
+
+### Select a stream from the media server
+## read location and itemName from the source
+POST http://{{ip}}:8090/select
+Content-Type: application/xml
+
+<ContentItem source="STORED_MUSIC"
+  sourceAccount="fa095ecc-e13e-40e7-8e6c-485D350B36C7/0"
+  location="4:cont2:615:part22:33"
+  isPresetable="true">
+  <itemName>Rock Alternative Stream</itemName>
+</ContentItem>
+
+### Store a stream as a preset
+POST http://{{ip}}:8090/storePreset
+Content-Type: application/xml
+
+<preset id="1">
+  <ContentItem source="STORED_MUSIC"
+    sourceAccount="fa095ecc-e13e-40e7-8e6c-485D350B36C7/0"
+    location="5:audio5:part25:692691:5 TRACK"
+    isPresetable="true">
+    <itemName>Rock Alternative Stream</itemName>
+  </ContentItem>
+</preset>
+
+### List media server info
+GET http://{{msIp}}:{{msPort}}/MediaServerDevDesc.xml
+
+
+### Browse DIDL-Lite to get info where internet radios are
+POST http://{{msIp}}:{{msPort}}{{controlUrl}}
+Content-Type: text/xml; charset="utf-8"
+SOAPAction: "urn:schemas-upnp-org:service:ContentDirectory:1#Browse"
+
+<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+      <ObjectID>0</ObjectID>
+      <BrowseFlag>BrowseDirectChildren</BrowseFlag>
+      <Filter>*</Filter>
+      <StartingIndex>0</StartingIndex>
+      <RequestedCount>200</RequestedCount>
+      <SortCriteria></SortCriteria>
+    </u:Browse>
+  </s:Body>
+</s:Envelope>
+
+### List Internet Radio streams
+POST http://{{msIp}}:{{msPort}}{{controlUrl}}
+Content-Type: text/xml; charset="utf-8"
+SOAPAction: "urn:schemas-upnp-org:service:ContentDirectory:1#Browse"
+
+<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+      <ObjectID>{{objectId}}</ObjectID>
+      <BrowseFlag>BrowseDirectChildren</BrowseFlag>
+      <Filter>*</Filter>
+      <StartingIndex>0</StartingIndex>
+      <RequestedCount>200</RequestedCount>
+      <SortCriteria></SortCriteria>
+    </u:Browse>
+  </s:Body>
+</s:Envelope>

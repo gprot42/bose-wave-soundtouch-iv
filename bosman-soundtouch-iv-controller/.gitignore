@@ -1,0 +1,64 @@
+# Node / Vite / SvelteKit
+node_modules/
+.svelte-kit/
+dist/
+build/
+.vite/
+.temp/
+.tmp/
+.cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# TypeScript
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+*.lcov
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.orig
+
+# PostCSS/Tailwind caches
+.postcss-cache/
+
+# Misc
+.npm/
+.eslintcache
+
+# Capacitor iOS – einchecken, aber Build- und Cache-Dateien ignorieren
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+ios/App/.last_build_id
+ios/*.xcbkptlist
+**/*.xcuserdatad/
+**/*.xcworkspace/xcuserdata/
+ios/App.xcuserdata/
+ios/App.xcodeproj/project.xcworkspace/xcuserdata
+ios/App.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+android/.gradle/
+android/.idea/
+android/local.properties
+android/captures/
+android/app/build/
+android/build/

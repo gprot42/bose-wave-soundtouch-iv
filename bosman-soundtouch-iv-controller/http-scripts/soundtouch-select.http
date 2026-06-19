@@ -1,0 +1,12 @@
+@ip = 192.168.0.100
+@sourceAccount = fa095ecc-e13e-40e7-8e6c-485D350B36C7/0
+@location = 5:audio5:part25:692691:5 TRACK
+@itemName = Rock Alternative Stream
+
+### Select a stored_music item (e.g., DLNA/UPnP item)
+POST http://{{ip}}:8090/select
+Content-Type: application/xml
+
+<ContentItem source="STORED_MUSIC" sourceAccount="{{sourceAccount}}" location="{{location}}" isPresetable="true">
+  <itemName>{{itemName}}</itemName>
+</ContentItem>

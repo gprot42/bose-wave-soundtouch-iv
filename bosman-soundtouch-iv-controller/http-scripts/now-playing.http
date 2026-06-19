@@ -1,0 +1,11 @@
+### Get Now Playing for a device
+# Replace {{device_ip}} with the actual IP address of your SoundTouch device
+
+@device_ip = 192.168.0.100
+
+GET http://{{device_ip}}:8090/now_playing
+Accept: application/xml
+
+### Get Now Playing via Bosman API
+GET http://localhost:5173/api/nowplaying/{{device_ip}}
+Accept: application/json

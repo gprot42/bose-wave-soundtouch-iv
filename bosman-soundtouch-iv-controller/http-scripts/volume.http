@@ -1,0 +1,19 @@
+### Get volume
+GET http://{{device_ip}}:8090/volume
+
+### Set volume (0-100)
+POST http://{{device_ip}}:8090/volume
+Content-Type: text/xml
+
+<volume>25</volume>
+
+### Get volume via API
+GET http://localhost:5173/api/volume/{{device_ip}}
+
+### Set volume via API
+POST http://localhost:5173/api/volume/{{device_ip}}
+Content-Type: application/json
+
+{
+  "volume": 30
+}

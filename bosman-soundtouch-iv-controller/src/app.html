@@ -1,0 +1,41 @@
+<!--
+  ~ Copyright (c) 2025. Kambrium Software GmbH
+  ~
+  ~ This software is confidential and proprietary information of Kambrium Software GmbH.
+  ~ Use of this software is governed by the terms of a written license agreement
+  ~ between you and Kambrium Software GmbH.
+  ~
+  ~ This software is not open source and may not be redistributed, modified,
+  ~ or disclosed in whole or in part without prior written permission from
+  ~ Kambrium Software GmbH.
+  ~
+  ~ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  ~ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  ~ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  ~ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  ~ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  ~ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  ~ THE SOFTWARE.
+  ~
+  -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link href="%sveltekit.assets%/favicon.ico" rel="icon" />
+  <meta content="width=device-width, initial-scale=1" name="viewport" />
+  <meta content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+  %sveltekit.head%
+  <title>SoundTouch Controller</title>
+</head>
+<body>
+<div style="display: contents">%sveltekit.body%</div>
+
+<script>
+  const theme = new URL(window.location).searchParams.get('theme');
+
+  document.documentElement.classList.remove('light', 'dark');
+  document.documentElement.classList.add(theme || 'dark');
+</script>
+</body>
+</html>

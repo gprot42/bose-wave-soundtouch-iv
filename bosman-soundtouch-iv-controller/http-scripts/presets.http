@@ -1,0 +1,19 @@
+@device_ip = 192.168.0.100
+
+### Get Presets
+GET http://{{device_ip}}:8090/presets
+
+### Select Preset 1
+POST http://{{device_ip}}:8090/key
+Content-Type: text/xml
+
+<key state="press" sender="Gabbo">PRESET_2</key>
+
+### Select Preset 1 (alternative via /select)
+# Note: This usually requires the full ContentItem from the /presets response
+POST http://{{device_ip}}:8090/select
+Content-Type: text/xml
+
+<ContentItem source="INTERNET_RADIO" location="12345" sourceAccount="">
+    <itemName>Example Station</itemName>
+</ContentItem>

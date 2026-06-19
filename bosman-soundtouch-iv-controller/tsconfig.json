@@ -1,0 +1,17 @@
+{
+  "extends": "./.svelte-kit/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["DOM", "ES2022"],
+    "strict": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowJs": false,
+    "skipLibCheck": true
+  },
+  "include": ["src", "vite.config.ts", "eslint.config.ts", "prettier.config.mjs", "src/**/*.d.ts", "src/**/*.svelte"]
+}
