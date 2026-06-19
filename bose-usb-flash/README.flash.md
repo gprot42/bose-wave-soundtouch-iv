@@ -76,43 +76,55 @@ https://archive.org/download/bose-soundtouch-software-and-firmware/Firmware/2015
 ### Requirements
 
 - USB-A stick, **32 GB or smaller**
-- Formatted **FAT32** — not exFAT, not NTFS
+- Partition table: **MBR (Master Boot Record / FDisk)** — GPT will not work;
+  the pedestal's embedded USB host stack does not parse GPT
+- Filesystem: **FAT32** — not exFAT (pedestal kernel has no exFAT module),
+  not NTFS, not FAT16
+- Only **`Update.stu`** at the USB root — no folders, no extra files
 
-### Format the USB stick
+### Automated method (recommended)
+
+`bose-usb-prep.sh` handles all of the above — format, junk removal,
+download, extraction, MD5 verify, and format validation — in one command:
+
+```sh
+./bose-usb-prep.sh          # downloads latest (27.00.06), interactive
+./bose-usb-prep.sh --dry-run  # preview all steps without writing anything
+```
+
+### Manual method
 
 **macOS:**
 ```sh
-# Find the disk identifier (look for your USB under "external")
-diskutil list
-
-# Format as FAT32 — replace disk2 with your actual identifier
-diskutil eraseDisk FAT32 BOSEFLASH MBRFormat /dev/disk2
+diskutil list   # find your USB — look for "external"
+diskutil eraseDisk FAT32 BOSEFLASH MBRFormat /dev/diskN
 ```
 
 **Windows:**
 Use the [HP USB Disk Storage Format Tool](https://www.bleepingcomputer.com/download/hp-usb-disk-storage-format-tool/) —
-choose FAT32, leave all other options unchecked.
+choose FAT32, leave all other options unchecked. Windows cannot natively
+format drives >32 GB as FAT32 — use this tool regardless of size.
 
 **Linux:**
 ```sh
-# Replace sdX1 with your partition
-mkfs.vfat -F 32 /dev/sdX1
+parted -s /dev/sdX mklabel msdos
+parted -s /dev/sdX mkpart primary fat32 1MiB 100%
+mkfs.vfat -F 32 -n BOSEFLASH /dev/sdX1
 ```
 
 ### macOS junk files — CRITICAL
 
-macOS silently creates hidden files on every USB volume that **prevent the
-pedestal from detecting the firmware file**. Remove them:
+macOS silently creates hidden files on every FAT32 volume that **prevent
+the pedestal from detecting the firmware file**. Remove them after copying:
 
 ```sh
-# Run after formatting, with the USB still mounted
 mdutil -i off /Volumes/BOSEFLASH
-rm -rf /Volumes/BOSEFLASH/.fseventsd
-rm -rf /Volumes/BOSEFLASH/.Spotlight-V100
-rm -f  /Volumes/BOSEFLASH/._*
+rm -rf /Volumes/BOSEFLASH/.fseventsd /Volumes/BOSEFLASH/.Spotlight-V100
+rm -f  /Volumes/BOSEFLASH/._* /Volumes/BOSEFLASH/.DS_Store
 ```
 
-(Tip from the [SoundCork speaker-setup guide](https://github.com/timvw/soundcork/blob/main/docs/speaker-setup.md) — confirmed to matter.)
+Run these commands **after** copying `Update.stu` — macOS recreates the
+`._Update.stu` AppleDouble file whenever you write to the volume.
 
 ### Extract and copy the firmware file
 
@@ -120,7 +132,8 @@ rm -f  /Volumes/BOSEFLASH/._*
 2. Unzip it — you will find a file called **`Update.stu`** inside
 3. Copy **only `Update.stu`** to the **root of the USB stick** — do not
    put it inside any folder
-4. Eject the USB stick safely
+4. Remove macOS junk files (see above)
+5. Eject the USB stick safely
 
 Your USB stick should look like this:
 
@@ -133,43 +146,52 @@ BOSEFLASH/
 
 ## Step 3 — Flash the pedestal
 
-The Wave SoundTouch IV pedestal has a **USB-A port on the back** (labelled
-`SETUP` on some units, next to the Control button and the Bose Link
-connector).
+The Wave SoundTouch IV pedestal has a **USB-A port on the back** labelled
+**SETUP B** (next to the Control button and the Bose Link connector).
 
-> **Which port?** The pedestal has two USB connections: the Micro-USB port
-> (for the old computer-updater method, now broken since servers are down)
-> and a **USB-A port** for a USB drive. Use the **USB-A port**.
+> **Which port?** The pedestal has two USB connections: a Micro-USB port
+> (for the old computer-updater method — now broken since Bose's servers
+> shut down) and a **USB-A port labelled SETUP B** for a USB drive.
+> Use the **USB-A SETUP B port only**.
+
+> **Critical:** The pedestal does **NOT** auto-detect `Update.stu` on
+> a normal power-on. You must force it into firmware-update mode using
+> the button sequence below. Powering on normally (even with the USB
+> inserted) will simply boot to `SOUNDTOUCH NOT CONFIGURED` — the update
+> will be silently ignored.
 
 ### Procedure
 
-1. **Make sure the pedestal is powered on** (Wave system on, light glowing).
-2. **Insert the USB stick** into the **USB-A port** on the back of the
-   pedestal.
-3. The pedestal detects `Update.stu` automatically at boot. If it does not
-   start updating within ~30 seconds:
-   - **Pull the AC cord** (full power-off, not standby)
-   - With the USB stick already inserted, **plug the AC cord back in**
-   - The pedestal boots, finds `Update.stu`, and starts flashing
-4. **Do not touch anything** while the update runs. The display may show
-   a progress indicator, a "do not disconnect" symbol, or go blank. This
-   takes 2–5 minutes.
-5. The pedestal **reboots automatically** when complete.
+1. **Unplug the AC power cord** from the pedestal completely (do not use
+   standby — full mains power-off).
+2. **Insert the USB stick** into the **SETUP B (USB-A)** port on the back.
+3. **Hold Button 4 + Volume Down (−)** simultaneously — keep holding.
+4. While still holding those two buttons, **plug the AC power cord back in**.
+5. Keep holding until the display shows a **circle-slash (⊘ prohibited
+   hand) symbol**, then release both buttons.
+6. **Do not touch anything** while the update runs. This takes 2–5 minutes.
+   The display may show a progress bar, "UPDATE", "PLEASE WAIT", or go blank.
+7. The pedestal **reboots automatically** when complete. Remove the USB stick.
 
 ### Signs the flash is working
 
-- Display shows a progress bar or "UPDATE" / "PLEASE WAIT"
+- Display shows the circle-slash ⊘ symbol immediately after the button sequence
+- Display transitions to a progress bar, "UPDATE", or "PLEASE WAIT"
 - WiFi light blinks during the process
 - Pedestal reboots on its own at the end
 
 ### Signs something went wrong
 
-- Nothing happens after 60 seconds with USB inserted → try the
-  power-cycle boot method above
-- Display shows an error code → the `Update.stu` file may be corrupted;
-  re-download and retry
+- **`SOUNDTOUCH NOT CONFIGURED`** appears with USB inserted → the pedestal
+  booted normally; the button sequence was not used or not held long enough —
+  power off completely and retry from step 1
+- Nothing happens after 60 seconds after the circle-slash appears → the
+  `Update.stu` file may be corrupted; re-run `bose-usb-prep.sh` to
+  re-download and re-verify
+- Display shows an error code → try the previous firmware version
+  (`./bose-usb-prep.sh --version 27.00.03`, then `26.00.01`)
 - Pedestal reboots into the same stuck state → try the previous firmware
-  version (27.00.03, then 26.00.01)
+  version and repeat the full button-sequence procedure
 
 ---
 
@@ -301,13 +323,15 @@ config without re-inserting the USB each time.
 
 | Stage | What to see | What to do next |
 |-------|------------|-----------------|
-| Before flash | AP broadcasts, DHCP works, port 80 refused | Flash `Update.stu` via USB-A |
-| Flash in progress | Display shows update / WiFi light blinks | Wait, do not unplug |
-| Flash complete | Pedestal reboots | Remove USB, hold Control ~3s for setup mode |
+| Before flash | AP broadcasts, DHCP works, port 80 refused | Prepare USB with `bose-usb-prep.sh`, use button sequence |
+| Entering update mode | Circle-slash ⊘ on display | Release buttons, wait for update to start |
+| Flash in progress | Progress bar / "UPDATE" / WiFi light blinks | Wait, do not unplug |
+| Flash complete | Pedestal reboots automatically | Remove USB, hold Control ~3 s for setup mode |
 | Setup mode OK | Solid amber + `SETUP SEE INSTRUCTIONS` | Join Bose AP, open BosMan, enter home WiFi |
-| On home WiFi | AP disappears, join home WiFi | Open BosMan, search devices |
+| On home WiFi | Bose AP disappears | Open BosMan, search devices |
 | Cloud dead | Presets / TuneIn broken | Set up SoundCork |
-| SoundCork running | Presets resolve, streaming works | Enjoy |
+| SoundCork running | Presets resolve, streaming works | Done |
+| **Wrong — normal boot** | `SOUNDTOUCH NOT CONFIGURED` with USB in | Button sequence not used — power off and retry |
 
 ---
 
