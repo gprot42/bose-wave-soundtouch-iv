@@ -683,8 +683,6 @@ verify_usb_contents() {
     if $DRY_RUN; then
         dr "ls -lah $mp  (expect: ${FIRMWARE_FILENAME}${MODE_SSH:+ $SSH_TRIGGER_FILE})"; return
     fi
-    # Spotlight can recreate .Spotlight-V100 in the window between mdutil and here;
-    # do one final sweep immediately before the directory walk.
     rm -rf "$mp/.Spotlight-V100" "$mp/.fseventsd" 2>/dev/null || true
     find "$mp" -maxdepth 2 -name '._*'       -delete 2>/dev/null || true
     find "$mp" -maxdepth 2 -name '.DS_Store' -delete 2>/dev/null || true
@@ -693,6 +691,11 @@ verify_usb_contents() {
     while IFS= read -r f; do
         [[ "$f" == "$mp" ]] && continue
         local fn; fn=$(basename "$f")
+        case "$fn" in
+            .Spotlight-V100|.fseventsd)
+                continue
+                ;;
+        esac
         if [[ "$fn" == .* ]]; then warn "  [JUNK] $fn"; junk=true
         else ok "  [FILE] $fn"; fi
     done < <(find "$mp" -maxdepth 1 | sort)
