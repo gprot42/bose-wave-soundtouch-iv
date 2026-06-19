@@ -618,14 +618,14 @@ download_firmware() {
     local zip="${LATEST_ZIP}"
     [[ -n "$REQUESTED_VERSION" ]] && zip=$(resolve_firmware_zip "$REQUESTED_VERSION")
     local url="$ARCHIVE_BASE/$zip" dest="$dest_dir/$zip"
-    step "Downloading firmware"
-    info "File   : $zip"
-    info "Source : $url"
-    if $DRY_RUN; then dr "curl -L --progress-bar --retry 3 -C - -o \"$dest\" \"$url\""; echo "$dest"; return; fi
+    step "Downloading firmware" >&2
+    info "File   : $zip" >&2
+    info "Source : $url" >&2
+    if $DRY_RUN; then dr "curl -L --progress-bar --retry 3 -C - -o \"$dest\" \"$url\"" >&2; echo "$dest"; return; fi
     curl -L --progress-bar --retry 3 --retry-delay 5 -C - -o "$dest" "$url" \
         || fatal "Download failed. Check internet connection."
     [[ -f "$dest" ]] || fatal "Download produced no file."
-    ok "Downloaded: $(du -sh "$dest" | cut -f1)"
+    ok "Downloaded: $(du -sh "$dest" | cut -f1)" >&2
     echo "$dest"
 }
 
@@ -634,16 +634,16 @@ download_firmware() {
 # ---------------------------------------------------------------------------
 extract_update_stu() {
     local zip="$1" dest_dir="$2" out="$2/$FIRMWARE_FILENAME"
-    step "Extracting $FIRMWARE_FILENAME"
-    info "Zip: $zip"
-    if $DRY_RUN; then dr "unzip -j \"$zip\" \"*$FIRMWARE_FILENAME\" -d \"$dest_dir\""; echo "$out"; return; fi
+    step "Extracting $FIRMWARE_FILENAME" >&2
+    info "Zip: $zip" >&2
+    if $DRY_RUN; then dr "unzip -j \"$zip\" \"*$FIRMWARE_FILENAME\" -d \"$dest_dir\"" >&2; echo "$out"; return; fi
     unzip -j -o "$zip" "*$FIRMWARE_FILENAME" -d "$dest_dir" 2>/dev/null \
         || unzip -j -o "$zip" "$FIRMWARE_FILENAME" -d "$dest_dir" 2>/dev/null || true
     if [[ ! -f "$out" ]]; then
-        warn "Contents of zip:"; unzip -l "$zip" | head -20
+        warn "Contents of zip:" >&2; unzip -l "$zip" | head -20 >&2
         fatal "$FIRMWARE_FILENAME not found in zip — file may be corrupted. Re-download and retry."
     fi
-    ok "Extracted $FIRMWARE_FILENAME ($(du -sh "$out" | cut -f1))"
+    ok "Extracted $FIRMWARE_FILENAME ($(du -sh "$out" | cut -f1))" >&2
     echo "$out"
 }
 
