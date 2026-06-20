@@ -134,7 +134,8 @@ int upnp_cast_stop(upnp_cast_session_t *s)
     if (s == NULL)
         return -1;
 
-    if (s->casting && s->device.av_control != NULL)
+    if (s->device.av_control != NULL
+     && (s->casting || s->httpd != NULL))
         upnp_av_stop(s->device.av_control);
 
     s->casting = false;

@@ -11,6 +11,7 @@
 #include <vlc_block.h>
 #include <vlc_demux.h>
 #include <vlc_input.h>
+#include <vlc_variables.h>
 #include <vlc_configuration.h>
 #include <vlc_url.h>
 
@@ -146,10 +147,13 @@ static void SoutClose(vlc_object_t *obj)
     }
 
     /*
-     * With sout-keep the instance can outlive this stream; only tear down the
-     * cast session when nothing is still using it. Never clear while the
-     * renderer is actively fetching media from our HTTP server.
+     * Renderer playback sets sout-keep, so this close callback often does not
+     * run when the user presses Stop — DemuxClose must stop the device too.
+     * When it does run, ensure remote playback is stopped before teardown.
      */
+    if (g_session.casting || g_session.httpd != NULL)
+        upnp_cast_stop(&g_session);
+
     if (g_session.owner_input == NULL && !g_session.casting && g_session.httpd == NULL)
         upnp_cast_session_clear(&g_session);
 }
@@ -179,6 +183,7 @@ typedef struct upnp_demux_sys
 {
     demux_t *demux;
     upnp_cast_session_t *session;
+    input_thread_t *input;
     bool enabled;
     bool folder_mode;
     bool directory_expanded;
@@ -187,6 +192,8 @@ typedef struct upnp_demux_sys
     bool renderer_confirmed;
     bool seen_playing;
     bool renderer_paused;
+    bool stop_sent;
+    bool ui_length_set;
     vlc_tick_t cast_start;
     vlc_tick_t play_confirmed_at;
     vlc_tick_t length;
@@ -218,17 +225,92 @@ static bool is_ended_state(const char *state)
 }
 
 static input_thread_t *get_filter_input(demux_t *demux);
+static const char *get_source_uri(demux_t *demux);
+
+static void cache_filter_input(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    if (sys->input == NULL)
+        sys->input = get_filter_input(demux);
+}
 
 static void probe_length_from_input(demux_t *demux, upnp_demux_sys_t *sys)
 {
-    input_thread_t *input = get_filter_input(demux);
-
-    if (input == NULL)
+    cache_filter_input(demux, sys);
+    if (sys->input == NULL)
         return;
 
-    input_item_t *item = input_GetItem(input);
-    if (item != NULL && item->i_duration > 0)
-        sys->length = item->i_duration;
+    input_item_t *item = input_GetItem(sys->input);
+    if (item == NULL)
+        return;
+
+    vlc_tick_t dur = input_item_GetDuration(item);
+    if (dur > 0)
+        sys->length = dur;
+}
+
+static void probe_length_from_uri(const char *source, upnp_demux_sys_t *sys)
+{
+    char path[4096];
+
+    if (source == NULL || sys->length > 0)
+        return;
+
+    if (strncmp(source, "file://", 7) == 0)
+    {
+        const char *p = source + 7;
+        if (p[0] == '/' && p[2] == ':')
+            p++;
+        if (upnp_url_decode(p, path, sizeof(path)) != 0)
+            return;
+    }
+    else if (source[0] == '/')
+    {
+        if (upnp_url_decode(source, path, sizeof(path)) != 0)
+            return;
+    }
+    else
+        return;
+
+    int64_t dur = upnp_probe_media_duration(path);
+    if (dur > 0)
+        sys->length = dur;
+}
+
+static void probe_length_from_source(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    probe_length_from_uri(get_source_uri(demux), sys);
+}
+
+static void push_playback_times(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    cache_filter_input(demux, sys);
+
+    if (sys->input == NULL || !sys->track_active || sys->length <= 0)
+        return;
+
+    double pos = (double)sys->time / (double)sys->length;
+    if (pos < 0.0)
+        pos = 0.0;
+    if (pos > 1.0)
+        pos = 1.0;
+
+    vlc_value_t val;
+
+    val.f_float = (float)pos;
+    var_Change(sys->input, "position", VLC_VAR_SETVALUE, &val, NULL);
+
+    val.i_int = sys->time;
+    var_Change(sys->input, "time", VLC_VAR_SETVALUE, &val, NULL);
+
+    if (!sys->ui_length_set)
+    {
+        val.i_int = sys->length;
+        var_Change(sys->input, "length", VLC_VAR_SETVALUE, &val, NULL);
+        var_SetInteger(sys->input, "intf-event", INPUT_EVENT_LENGTH);
+        sys->ui_length_set = true;
+    }
+
+    var_SetInteger(sys->input, "intf-event", INPUT_EVENT_POSITION);
 }
 
 static void probe_length_from_next(demux_t *demux, upnp_demux_sys_t *sys)
@@ -242,6 +324,20 @@ static void probe_length_from_next(demux_t *demux, upnp_demux_sys_t *sys)
 
     if (sys->length <= 0)
         probe_length_from_input(demux, sys);
+    if (sys->length <= 0)
+        probe_length_from_source(demux, sys);
+}
+
+static void stop_remote_playback(upnp_demux_sys_t *sys)
+{
+    if (sys == NULL || sys->stop_sent)
+        return;
+
+    if (!sys->track_active && !sys->session->casting && sys->session->httpd == NULL)
+        return;
+
+    upnp_cast_stop(sys->session);
+    sys->stop_sent = true;
 }
 
 static void update_position_from_renderer(upnp_demux_sys_t *sys)
@@ -334,19 +430,20 @@ static bool input_has_ended(input_thread_t *input)
     return input_GetState(input) == END_S;
 }
 
-static bool cast_input_active(demux_t *demux)
+static bool cast_input_active(demux_t *demux, upnp_demux_sys_t *sys)
 {
-    input_thread_t *input = get_filter_input(demux);
+    cache_filter_input(demux, sys);
 
-    return input != NULL && !demux->b_preparsing && !input_has_ended(input);
+    return sys->input != NULL && !demux->b_preparsing
+        && !input_has_ended(sys->input);
 }
 
 static void bind_cast_input(demux_t *demux, upnp_demux_sys_t *sys)
 {
-    input_thread_t *input = get_filter_input(demux);
+    cache_filter_input(demux, sys);
 
-    if (input != NULL && !demux->b_preparsing)
-        sys->session->owner_input = input;
+    if (sys->input != NULL && !demux->b_preparsing)
+        sys->session->owner_input = sys->input;
 }
 
 static bool cast_playback_ended(upnp_demux_sys_t *sys, const char *state)
@@ -401,7 +498,7 @@ static int ensure_cast_enabled(demux_t *demux, upnp_demux_sys_t *sys)
     if (sys->enabled)
         return VLC_SUCCESS;
 
-    if (!cast_session_ready(sys->session) || !cast_input_active(demux))
+    if (!cast_session_ready(sys->session) || !cast_input_active(demux, sys))
         return VLC_SUCCESS;
 
     bind_cast_input(demux, sys);
@@ -447,7 +544,10 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
     sys->play_confirmed_at = 0;
     sys->time = 0;
     sys->length = 0;
+    sys->stop_sent = false;
+    sys->ui_length_set = false;
     probe_length_from_next(demux, sys);
+    probe_length_from_uri(source, sys);
 
     msg_Info(demux, "Casting '%s' to %s via %s", source,
              sys->session->device.friendly_name, sys->session->media_url);
@@ -469,6 +569,7 @@ static void reset_track_state(upnp_demux_sys_t *sys)
     sys->play_confirmed_at = 0;
     sys->time = 0;
     sys->length = 0;
+    sys->ui_length_set = false;
 }
 
 static int poll_renderer_playback(demux_t *demux, upnp_demux_sys_t *sys)
@@ -502,8 +603,14 @@ static int poll_renderer_playback(demux_t *demux, upnp_demux_sys_t *sys)
             sys->renderer_confirmed = true;
     }
 
-    if (sys->renderer_confirmed)
+    if (sys->length <= 0)
+        probe_length_from_next(demux, sys);
+
+    if (sys->track_active)
+    {
         update_position_from_renderer(sys);
+        push_playback_times(demux, sys);
+    }
 
     if (cast_playback_ended(sys, state))
     {
@@ -587,12 +694,11 @@ static void DemuxClose(vlc_object_t *obj)
     demux_t *demux = (demux_t *)obj;
     upnp_demux_sys_t *sys = (upnp_demux_sys_t *)demux->p_sys;
 
-    /* User stopped/skipped this input — stop remote playback. */
-    if (sys->enabled && sys->session->owner_input == get_filter_input(demux)
-     && (sys->track_active || sys->session->casting))
-        upnp_cast_stop(sys->session);
+    /* Renderer casts set sout-keep; this is the main stop path for the Bose. */
+    stop_remote_playback(sys);
 
-    if (sys->session->owner_input == get_filter_input(demux))
+    cache_filter_input(demux, sys);
+    if (sys->session->owner_input == sys->input)
         sys->session->owner_input = NULL;
     free(sys);
 }
@@ -619,8 +725,10 @@ static int demux_file_cast(demux_t *demux, upnp_demux_sys_t *sys)
 
     bind_cast_var_to_input(demux, sys->session);
 
-    if (!cast_input_active(demux))
+    if (!cast_input_active(demux, sys))
     {
+        if (sys->track_active)
+            stop_remote_playback(sys);
         msleep(CAST_WAIT_DELAY);
         return VLC_DEMUXER_SUCCESS;
     }
@@ -706,18 +814,17 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
             return VLC_SUCCESS;
 
         case DEMUX_FILTER_DISABLE:
-            if (sys->enabled && sys->session->owner_input == get_filter_input(demux)
-             && (sys->track_active || sys->session->casting))
-                upnp_cast_stop(sys->session);
+            stop_remote_playback(sys);
             sys->enabled = false;
-            if (sys->session->owner_input == get_filter_input(demux))
+            cache_filter_input(demux, sys);
+            if (sys->session->owner_input == sys->input)
                 sys->session->owner_input = NULL;
             return VLC_SUCCESS;
 
         case DEMUX_SET_PAUSE_STATE:
         {
             int paused = va_arg(args, int);
-            input_thread_t *input = get_filter_input(demux);
+            cache_filter_input(demux, sys);
 
             if (paused)
             {
@@ -730,8 +837,9 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
                     sys->renderer_paused = false;
             }
 
-            if (input != NULL)
-                input_Control(input, INPUT_SET_STATE, paused ? PAUSE_S : PLAYING_S);
+            if (sys->input != NULL)
+                input_Control(sys->input, INPUT_SET_STATE,
+                              paused ? PAUSE_S : PLAYING_S);
             return VLC_SUCCESS;
         }
 
@@ -771,14 +879,16 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
         {
             int64_t *val = va_arg(args, int64_t *);
 
-            if (sys->track_active && sys->renderer_confirmed)
-                update_position_from_renderer(sys);
-            else if (sys->seen_playing)
+            if (sys->length <= 0)
+                probe_length_from_next(demux, sys);
+
+            if (sys->track_active)
                 update_position_from_renderer(sys);
 
-            if (sys->track_active || sys->seen_playing)
+            if (sys->track_active)
             {
                 *val = sys->time;
+                push_playback_times(demux, sys);
                 return VLC_SUCCESS;
             }
             if (next != NULL && demux_Control(next, DEMUX_GET_TIME, val) == VLC_SUCCESS)
@@ -794,15 +904,20 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
             if (sys->length <= 0)
                 probe_length_from_next(demux, sys);
 
-            if (sys->track_active && sys->renderer_confirmed)
-                update_position_from_renderer(sys);
-            else if (sys->seen_playing)
+            if (sys->track_active)
                 update_position_from_renderer(sys);
 
-            if (sys->length > 0 && (sys->track_active || sys->seen_playing))
+            if (sys->length > 0 && sys->track_active)
+            {
                 *val = (double)sys->time / (double)sys->length;
-            else
-                *val = 0.0;
+                if (*val < 0.0)
+                    *val = 0.0;
+                if (*val > 1.0)
+                    *val = 1.0;
+                push_playback_times(demux, sys);
+                return VLC_SUCCESS;
+            }
+            *val = 0.0;
             return VLC_SUCCESS;
         }
 

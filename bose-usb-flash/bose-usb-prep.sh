@@ -591,6 +591,27 @@ confirm_destructive() {
 }
 
 # ---------------------------------------------------------------------------
+# MBR boot flag (some Bose units require this for remote_services USB)
+# ---------------------------------------------------------------------------
+set_partition_bootable() {
+    local disk="$1"
+    step "Setting MBR boot flag on partition 1  (SSH sticks)"
+    if $DRY_RUN; then dr "set MBR boot flag on /dev/$disk partition 1"; return; fi
+    if [[ "$OS" == macos ]]; then
+        local raw="/dev/${disk/disk/rdisk}"
+        if printf 'f 1\nw\ny\n' | fdisk -e "$raw" >/dev/null 2>&1; then
+            ok "Boot flag set via fdisk on $raw"
+        else
+            warn "Could not set boot flag via fdisk — continuing (some Macs block fdisk on external disks)."
+        fi
+    else
+        parted -s "/dev/$disk" set 1 boot on \
+            || warn "Could not set boot flag via parted — continuing."
+        ok "Boot flag set via parted on /dev/${disk}1"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Format FAT32
 # ---------------------------------------------------------------------------
 format_fat32() {
@@ -841,6 +862,7 @@ main() {
 
     # Format
     format_fat32 "$disk"
+    $MODE_SSH && set_partition_bootable "$disk"
 
     # Mount point
     local mp
@@ -944,16 +966,21 @@ main() {
             echo -e "${BOLD}Next steps — SSH enable (SoundCork):${RESET}"
         fi
         echo "  1. Speaker must already be on your home WiFi (port 8090 reachable)."
-        echo "  2. Power the pedestal OFF — pull the AC cord completely."
-        echo "  3. Insert the SSH-only USB into Setup B (USB-A jack on the pedestal back)."
+        echo "  2. Plug Ethernet into the pedestal NETWORK PORT (RJ45) and your router."
+        echo "     This is NOT the Setup B USB jack — use both ports: Ethernet + USB."
+        echo "     Required on Wave IV; the SSH boot often drops WiFi to the Bose setup AP."
+        echo "  3. Power the pedestal OFF — pull the AC cord completely."
+        echo "  4. Insert the SSH-only USB into Setup B (USB-A jack on the pedestal back)."
         echo "     Use Setup B, not Setup A (Micro-USB), unless you have a known-good OTG adapter."
-        echo "  4. Plug the AC cord back in and wait ~60 seconds."
-        echo "  5. SSH in (no password):  ssh root@<speaker-ip>"
-        echo "  6. Make SSH persistent:   ssh root@<speaker-ip> 'touch /mnt/nv/remote_services'"
-        echo "  7. Follow README.flash.md §5 for the full SoundCork setup."
+        echo "  5. Plug the AC cord back in and wait ~60 seconds."
+        echo "  6. Stay on your home LAN — do NOT join the Bose setup SSID to test SSH."
+        echo "  7. SSH in (no password):  ssh -o HostKeyAlgorithms=+ssh-rsa root@<speaker-ip>"
+        echo "     Use the router/Ethernet IP, not 192.0.2.1 (SSH is not on the setup AP)."
+        echo "  8. Make SSH persistent:   ssh root@<speaker-ip> 'touch /mnt/nv/remote_services'"
+        echo "  9. Remove the USB stick, then follow README.flash.md §5 for SoundCork setup."
         echo ""
-        echo "  If port 22 still refuses: try Ethernet for that boot, a different USB 2.0"
-        echo "  stick, and confirm the stick contains only remote_services (no Update.stu)."
+        echo "  Connection refused on 192.0.2.1 is normal on Wave IV — see README.flash.md"
+        echo "  § SSH connection refused. Also try a USB 2.0 stick; confirm only remote_services."
         echo ""
     fi
 }

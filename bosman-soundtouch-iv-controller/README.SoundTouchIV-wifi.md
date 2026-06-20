@@ -209,6 +209,7 @@ Bose’s “[Cannot connect to the built‑in setup network](https://support.bos
    - Write‑up: [Keep your Bose SoundTouch alive after the shutdown](https://timvw.be/2026/02/17/keep-your-bose-soundtouch-speaker-alive-after-the-shutdown/)
    - Note: SoundCork enables **passwordless root SSH** via a USB `remote_services` flag file and redirects the speaker’s cloud URLs to your server. Port **8090** already needs no auth. Only do this on a trusted network.
    - **SSH is a separate USB pass** from firmware flash — `bose-usb-prep.sh --both` does not enable SSH during the flash. See [README.flash.md § Flash vs SSH](../bose-usb-flash/README.flash.md#flash-vs-ssh-two-separate-procedures).
+   - **SSH requires Ethernet on Wave IV.** Before the SSH USB power-cycle, plug an Ethernet cable into the pedestal **network port** (RJ45, not Setup B) and your router. The SSH boot often drops WiFi and brings back the `Bose Wave ST (…)` AP — Ethernet keeps the speaker reachable on your LAN. SSH to the router's **Ethernet DHCP IP**, not `192.0.2.1` (`Connection refused` on the setup AP is normal). See [README.flash.md § Plug Ethernet before the SSH USB pass](../bose-usb-flash/README.flash.md#plug-ethernet-before-the-ssh-usb-pass-wave-iv).
 
 3. **This app (BosMan)** controls the speaker **locally** over port 8090 / WebSocket 8080 and needs none of Bose’s cloud — but the speaker must first be on your Wi‑Fi, which requires the setup server (fix #1) to work at least once.
 

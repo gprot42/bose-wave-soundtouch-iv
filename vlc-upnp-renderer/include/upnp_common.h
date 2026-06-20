@@ -51,4 +51,7 @@ int upnp_url_decode(const char *in, char *out, size_t outlen);
 /* Parse UPnP duration strings (e.g. "0:03:45") into VLC ticks. */
 int upnp_parse_hms_duration(const char *hms, int64_t *ticks_out);
 
+/* Best-effort local media duration probe (microseconds); 0 if unknown. */
+int64_t upnp_probe_media_duration(const char *path);
+
 #endif /* UPNP_COMMON_H */

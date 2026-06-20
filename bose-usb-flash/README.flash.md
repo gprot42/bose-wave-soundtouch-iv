@@ -25,10 +25,13 @@ documented here.
 
 ```
 1. Get firmware   →  2. Prepare USB   →  3. Flash pedestal   →  4. Setup WiFi   →  5. Enable SSH   →  6. SoundCork
+                                                      ↑ plug Ethernet into pedestal for step 5 (Wave IV)
 ```
 
 Steps 3 and 5 are **separate pedestal procedures**. Putting both files on one stick
-(`--both`) does not enable SSH during the firmware flash.
+(`--both`) does not enable SSH during the firmware flash. **Step 5 (SSH) on Wave IV
+requires an Ethernet cable** plugged into the pedestal's network port — see
+[Plug Ethernet before the SSH USB pass](#plug-ethernet-before-the-ssh-usb-pass-wave-iv).
 
 ---
 
@@ -85,6 +88,8 @@ https://archive.org/download/bose-soundtouch-software-and-firmware/Firmware/2015
   not NTFS, not FAT16
 - Firmware flash: only **`Update.stu`** at the USB root — no folders, no extra files
 - SSH enable: only **`remote_services`** at the USB root (see [Flash vs SSH](#flash-vs-ssh-two-separate-procedures))
+- SSH enable (Wave IV): an **Ethernet cable** from the pedestal's **network port**
+  to your router/switch (see [Plug Ethernet before the SSH USB pass](#plug-ethernet-before-the-ssh-usb-pass-wave-iv))
 
 ### Automated method (recommended)
 
@@ -109,6 +114,7 @@ boot-time behaviors:
 |---|----------------|------------|
 | **USB file** | `Update.stu` | `remote_services` (empty, no extension) |
 | **When** | Stuck firmware / first recovery | After flash and WiFi setup, before SoundCork |
+| **Ethernet** | Not required | **Required on Wave IV** — plug into pedestal **network port** before power-on |
 | **Power state** | Powered on, or power-cycle + Control button | **Power off** → insert USB → power on |
 | **USB port** | SETUP / SETUP B / SERVICE jack | **Setup B** (USB-A on pedestal back) |
 | **Success signal** | Pedestal reboots on its own | `ssh root@<ip>` connects (port 22 open) |
@@ -124,8 +130,10 @@ SSH power-cycle pass.
 1. `./bose-usb-prep.sh` or `./bose-usb-prep.sh --both` — flash the pedestal.
 2. Remove USB when the pedestal reboots. Complete WiFi setup (Step 4).
 3. `./bose-usb-prep.sh --ssh` — prepare an **SSH-only** stick (no `Update.stu`).
-4. Power off → insert SSH stick into **Setup B** → power on → wait ~60 s.
-5. `ssh root@<speaker-ip>` then `touch /mnt/nv/remote_services`.
+4. **Plug Ethernet** from the pedestal **network port** to your router (see below).
+5. Power off → insert SSH stick into **Setup B** → power on → wait ~90 s.
+6. From your Mac on the **home LAN** (not the Bose setup SSID): `ssh root@<speaker-ip>`
+   then `touch /mnt/nv/remote_services`. Use the router's Ethernet DHCP lease.
 
 Use `--ssh` for step 3, not the original `--both` stick. If `Update.stu` is still
 on the stick, re-inserting it may trigger another firmware update instead of SSH.
@@ -133,8 +141,134 @@ on the stick, re-inserting it may trigger another firmware update instead of SSH
 > **Wave IV caveat:** The `remote_services` USB method is documented for SoundTouch
 > speakers and works on many units. Some Wave SoundTouch IV owners report SSH still
 > refusing after the correct procedure ([soundcork#309](https://github.com/deborahgu/soundcork/issues/309)).
-> If that happens, try Ethernet for the SSH boot, a different USB 2.0 stick, and
-> confirm the stick has only `remote_services` with no macOS junk files.
+> If that happens, confirm Ethernet is plugged in, try a different USB 2.0 stick,
+> and confirm the stick has only `remote_services` with no macOS junk files.
+
+### Plug Ethernet before the SSH USB pass (Wave IV)
+
+The pedestal back has **two different connectors** — do not confuse them:
+
+| Jack | Label | Used for |
+|------|-------|----------|
+| **Setup B** | SETUP / SETUP B / SERVICE | USB stick (`Update.stu` or `remote_services`) |
+| **Network port** | network / computer-setup (RJ45) | **Ethernet cable to your router** |
+
+For the SSH enable pass, **both** are used at once:
+
+1. Run `./bose-usb-prep.sh --ssh` and eject the stick.
+2. Confirm the speaker is on home WiFi and port **8090** works (BosMan can reach it).
+3. **Plug an Ethernet cable** into the pedestal **network port** and your router or
+   switch. Leave WiFi configured — Ethernet gives you a reachable IP when the SSH
+   USB boot drops WiFi back to the `Bose Wave ST` setup AP.
+4. Power off → insert the SSH stick into **Setup B** → power on → wait ~90 s.
+5. On your Mac, stay on the **home LAN**. Check your router's DHCP client list for a
+   new **Ethernet** lease (not the Bose SSID).
+6. `ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<speaker-ip>`
+7. `touch /mnt/nv/remote_services`, remove the USB stick, power-cycle.
+
+The network port is **not** where the USB stick goes. Firmware flash and SSH USB
+both use **Setup B** only; Ethernet is an extra cable for SSH so you can reach
+port 22 after the boot.
+
+### SSH boot drops WiFi (Wave IV)
+
+On the Wave SoundTouch IV pedestal, powering on with a `remote_services` USB stick
+in **Setup B** often triggers a **service boot path** that does **not** rejoin your
+home WiFi. Typical symptoms:
+
+- The speaker never appears in your router's DHCP client list
+- The `Bose Wave ST (…)` setup AP comes back
+- You have to join that AP and re-enter your home WiFi password in BosMan
+
+This is **not** a router DHCP problem. The pedestal never became a WiFi client — it
+fell back to setup mode. The setup AP does hand out leases (`192.0.2.x` or
+`192.168.1.x`), but that is the speaker's own network, not your LAN.
+
+**Recommended fix — use Ethernet for the SSH pass:**
+
+1. Confirm the speaker is already on home WiFi and port **8090** works.
+2. Plug an **Ethernet cable** into the pedestal's **network port** (not the Setup
+   USB jack).
+3. Power off → insert the SSH-only USB into **Setup B** → power on → wait ~60 s.
+4. Find the speaker's IP in your router's DHCP list (often under the Ethernet
+   interface).
+5. `ssh root@<speaker-ip>` then `touch /mnt/nv/remote_services`.
+6. **Remove the USB stick** and power-cycle normally (no USB inserted).
+7. WiFi should come back on its own. If it does not, do the BosMan setup pass once
+   more — that should be the last time.
+
+**After SSH works:** always run `touch /mnt/nv/remote_services` on the speaker and
+remove the USB. That persists SSH in internal storage so future reboots do not need
+another USB pass — and WiFi is more likely to survive the next boot.
+
+### SSH connection refused (Wave IV)
+
+`ssh: connect to host 192.0.2.1 port 22: Connection refused` after joining the
+`Bose Wave ST (…)` setup AP is a common false alarm. It usually means **SSH was
+never enabled**, not that your Mac cannot reach the speaker.
+
+On Wave IV, three separate things get conflated:
+
+| What you see | What it means |
+|--------------|---------------|
+| `Bose Wave ST` AP is broadcasting | Pedestal is in (or fell back to) setup mode — expected after many SSH USB boots |
+| `192.0.2.1` responds to ping / ARP | Setup AP network is alive |
+| Port **22** `Connection refused` | Nothing is listening for SSH — `remote_services` was **not** consumed, or Wave IV never started `sshd` |
+
+SSH on Bose firmware listens on the **home LAN / Ethernet** interface. It is
+**not** generally reachable on the setup AP gateway (`192.0.2.1`). Testing SSH
+while joined to the Bose SSID is therefore the wrong test on Wave IV.
+
+**How to tell whether the USB stick was read**
+
+During power-on with the stick in **Setup B**, watch the pedestal **WiFi LED**:
+
+- **Blinks white** for a while → pedestal is reading/processing the USB (good sign)
+- **Never changes** → stick not detected — recheck port, FAT32/MBR, junk files, try another USB 2.0 drive
+
+**Verify the stick on your computer** (before inserting it):
+
+```sh
+ls -la /Volumes/BOSEFLASH/
+# Expected: exactly one visible file named remote_services (zero bytes)
+# Must NOT contain: Update.stu, .DS_Store, ._*, .fseventsd, .Spotlight-V100
+```
+
+Re-prepare with the prep script (sets MBR boot flag for SSH sticks):
+
+```sh
+./bose-usb-prep.sh --ssh
+```
+
+**Correct SSH test procedure**
+
+1. Speaker was on home WiFi with port **8090** working **before** the SSH pass.
+2. Plug **Ethernet** into the pedestal network port.
+3. Power off → insert SSH-only USB in **Setup B** → power on → wait ~90 s.
+4. Stay on your **home WiFi/Ethernet** network on the Mac — do **not** join the Bose SSID.
+5. Find the speaker in your router DHCP list (often a second lease on Ethernet).
+6. `ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<speaker-ip>`
+
+Modern OpenSSH disables `ssh-rsa`; add those options if you get algorithm errors.
+
+**If port 22 still refuses on the home/Ethernet IP**
+
+The USB `remote_services` method is documented for standalone SoundTouch 10/20/30
+speakers. Multiple Wave SoundTouch IV owners report it **never enables SSH** even
+with a correct stick ([soundcork#309](https://github.com/deborahgu/soundcork/issues/309)).
+That points to a **firmware/platform limitation**, not a formatting typo.
+
+Things still worth trying:
+
+- A different small **USB 2.0** stick (re-prepared with `bose-usb-prep.sh --ssh`)
+- Confirm **Setup B** (USB-A), not Setup A / Micro-USB OTG
+- Leave the stick inserted through the full ~90 s boot — do not remove early
+- After re-provisioning WiFi, check whether port **17000** answers on the home IP
+  (some Wave IV units expose a limited TAP console there — do **not** send exploratory
+  commands; `demo enter` can brick the unit)
+
+If nothing opens port 22, SoundCork server redirect via SSH is not available on that
+pedestal today. Local control via BosMan on port **8090** still works once WiFi is set up.
 
 ### Manual method
 
@@ -324,19 +458,23 @@ BOSEFLASH/
 
 Then on the pedestal (speaker must already be on home WiFi):
 
-1. Power off completely (pull AC cord)
-2. Insert the stick into **Setup B** (USB-A jack on the pedestal back)
-3. Power on and wait ~60 seconds
-4. SSH in — no password required:
+1. **Plug Ethernet** into the pedestal **network port** (RJ45) and your router —
+   required on Wave IV; see [Plug Ethernet before the SSH USB pass](#plug-ethernet-before-the-ssh-usb-pass-wave-iv).
+2. Power off completely (pull AC cord)
+3. Insert the stick into **Setup B** (USB-A jack on the pedestal back — not the network port)
+4. Power on and wait ~90 seconds
+5. Stay on your **home LAN** on the Mac (do not join the `Bose Wave ST` SSID).
+6. SSH in — no password required:
 
 ```sh
-ssh root@<speaker-ip>
+ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<speaker-ip>
 ```
 
 Use `root@` — `ssh <ip>` alone tries your Mac username and will fail even when
 SSH is running.
 
-Find the speaker's IP from your router's DHCP list or:
+Find the speaker's IP from your router's DHCP list (Ethernet is more reliable than
+WiFi for this boot on Wave IV) or:
 
 ```sh
 # Once BosMan found it on port 8090, the IP is shown in the app
@@ -388,7 +526,8 @@ touch /mnt/nv/remote_services
 ```
 
 This keeps SSH accessible across reboots so you can manage SoundCork
-config without re-inserting the USB each time.
+config without re-inserting the USB each time. **Remove the USB stick** after
+running this — leaving it inserted can cause odd boots on the next power cycle.
 
 ---
 
@@ -402,8 +541,10 @@ config without re-inserting the USB each time.
 | Flash complete | Pedestal reboots automatically (~30 s–5 min) | Remove USB, hold Control ~3 s for setup mode |
 | Setup mode OK | Solid amber + `SETUP SEE INSTRUCTIONS` | Join Bose AP, open BosMan, enter home WiFi |
 | On home WiFi | Bose AP disappears | Open BosMan, search devices |
-| SSH needed | Port 8090 works, port 22 refused | `./bose-usb-prep.sh --ssh`, power-cycle with stick in Setup B |
-| SSH enabled | `ssh root@<ip>` connects | `touch /mnt/nv/remote_services`, then SoundCork setup |
+| SSH needed | Port 8090 works, port 22 refused | `./bose-usb-prep.sh --ssh`, **plug Ethernet**, power-cycle with stick in Setup B |
+| SSH boot, no home IP | `Bose Wave ST` AP back, router shows no DHCP lease | Not a router problem — use Ethernet for SSH pass; see [SSH boot drops WiFi](#ssh-boot-drops-wifi-wave-iv) |
+| SSH on setup AP | `ssh root@192.0.2.1` → `Connection refused` | Wrong test — SSH is not on the setup AP; use Ethernet + home LAN IP; see [SSH connection refused](#ssh-connection-refused-wave-iv) |
+| SSH enabled | `ssh root@<ip>` connects | `touch /mnt/nv/remote_services`, **remove USB**, then SoundCork setup |
 | Cloud dead | Presets / TuneIn broken | Set up SoundCork |
 | SoundCork running | Presets resolve, streaming works | Done |
 | **Wrong — USB ignored** | `SOUNDTOUCH NOT CONFIGURED`, no reboot | Check SETUP jack/adapter, FAT32, junk files, try another drive; do NOT use console buttons |

@@ -11,7 +11,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
+
+#ifndef CLOCK_FREQ
+# define CLOCK_FREQ 1000000LL
+#endif
 
 typedef struct registry_entry
 {
@@ -248,7 +253,192 @@ int upnp_parse_hms_duration(const char *hms, int64_t *ticks_out)
     else if (n != 3)
         return -1;
 
-    *ticks_out = ((int64_t)hour * 3600 + min * 60 + sec) * 1000000LL;
+    *ticks_out = ((int64_t)hour * 3600 + min * 60 + sec) * CLOCK_FREQ;
+    return 0;
+}
+
+static const int mp3_bitrates[16] = {
+    0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0
+};
+
+static const int mp3_samplerates[4][4] = {
+    { 11025, 12000, 8000, 0 },
+    { 0, 0, 0, 0 },
+    { 22050, 24000, 16000, 0 },
+    { 44100, 48000, 32000, 0 },
+};
+
+static int mp3_frame_samples(int version, int layer)
+{
+    if (layer == 3)
+        return version == 3 ? 1152 : 576;
+    if (layer == 2)
+        return 1152;
+    return 384;
+}
+
+static int mp3_parse_frame(const unsigned char *buf, size_t len,
+                           int *version, int *layer, int *bitrate_kbps,
+                           int *samplerate, int *padding, int *samples)
+{
+    if (len < 4 || buf[0] != 0xFF || (buf[1] & 0xE0) != 0xE0)
+        return -1;
+
+    int ver = (buf[1] >> 3) & 0x03;
+    int lay = (buf[1] >> 1) & 0x03;
+    int br_idx = (buf[2] >> 4) & 0x0F;
+    int sr_idx = (buf[2] >> 2) & 0x03;
+    int pad = (buf[2] >> 1) & 0x01;
+
+    if (ver == 1 || lay == 0 || br_idx == 0 || br_idx == 15 || sr_idx == 3)
+        return -1;
+
+    int ver_code = ver == 3 ? 3 : ver == 2 ? 2 : 0;
+    int lay_code = 4 - lay;
+    int bitrate = mp3_bitrates[br_idx];
+    int samplerate_hz = mp3_samplerates[ver_code][sr_idx];
+
+    if (bitrate <= 0 || samplerate_hz <= 0)
+        return -1;
+
+    *version = ver_code;
+    *layer = lay_code;
+    *bitrate_kbps = bitrate;
+    *samplerate = samplerate_hz;
+    *padding = pad;
+    *samples = mp3_frame_samples(ver_code, lay_code);
+    return 0;
+}
+
+static size_t mp3_frame_length(int version, int layer, int bitrate_kbps,
+                               int samplerate, int padding)
+{
+    if (layer == 3)
+    {
+        if (version == 3)
+            return (size_t)((144000 * bitrate_kbps) / samplerate + padding);
+        return (size_t)((72000 * bitrate_kbps) / samplerate + padding);
+    }
+    if (layer == 2)
+        return (size_t)((144000 * bitrate_kbps) / samplerate + padding);
+    return (size_t)((12000 * bitrate_kbps) / samplerate + padding);
+}
+
+static int64_t mp3_duration_from_xing(const unsigned char *frame, size_t frame_len,
+                                      int version, int layer, int bitrate_kbps,
+                                      int samplerate, int samples_per_frame)
+{
+    size_t hdr_len = (version == 3 && layer == 3) ? 4 : 6;
+    if (frame_len < hdr_len + 12)
+        return 0;
+
+    const unsigned char *xing = NULL;
+    for (size_t off = hdr_len; off + 4 <= frame_len && off < hdr_len + 120; off++)
+    {
+        if (memcmp(frame + off, "Xing", 4) == 0
+         || memcmp(frame + off, "Info", 4) == 0)
+        {
+            xing = frame + off;
+            break;
+        }
+    }
+
+    if (xing == NULL)
+        return 0;
+
+    unsigned flags = (unsigned)((xing[4] << 24) | (xing[5] << 16)
+                              | (xing[6] << 8) | xing[7]);
+    size_t pos = 8;
+    if ((flags & 0x01) && pos + 4 <= frame_len)
+    {
+        unsigned frames = (unsigned)((xing[pos] << 24) | (xing[pos + 1] << 16)
+                                   | (xing[pos + 2] << 8) | xing[pos + 3]);
+        return ((int64_t)frames * samples_per_frame * CLOCK_FREQ) / samplerate;
+    }
+
+    (void)bitrate_kbps;
+    return 0;
+}
+
+static int64_t mp3_duration_ticks(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (fp == NULL)
+        return 0;
+
+    unsigned char hdr[10];
+    long audio_start = 0;
+    if (fread(hdr, 1, 10, fp) == 10 && memcmp(hdr, "ID3", 3) == 0)
+    {
+        size_t tagsize = ((hdr[6] & 0x7F) << 21) | ((hdr[7] & 0x7F) << 14)
+                       | ((hdr[8] & 0x7F) << 7) | (hdr[9] & 0x7F);
+        audio_start = (long)(10 + tagsize);
+    }
+    fseek(fp, audio_start, SEEK_SET);
+
+    struct stat st;
+    if (fstat(fileno(fp), &st) != 0 || st.st_size <= audio_start)
+    {
+        fclose(fp);
+        return 0;
+    }
+
+    size_t scan_len = (size_t)st.st_size - (size_t)audio_start;
+    if (scan_len > 262144)
+        scan_len = 262144;
+
+    unsigned char *buf = malloc(scan_len);
+    if (buf == NULL)
+    {
+        fclose(fp);
+        return 0;
+    }
+
+    size_t got = fread(buf, 1, scan_len, fp);
+    fclose(fp);
+    if (got < 4)
+    {
+        free(buf);
+        return 0;
+    }
+
+    int64_t duration = 0;
+    for (size_t i = 0; i + 4 < got; i++)
+    {
+        int version, layer, bitrate, samplerate, padding, samples;
+        if (mp3_parse_frame(buf + i, got - i, &version, &layer, &bitrate,
+                            &samplerate, &padding, &samples) != 0)
+            continue;
+
+        size_t frame_len = mp3_frame_length(version, layer, bitrate,
+                                            samplerate, padding);
+        if (frame_len < 4 || i + frame_len > got)
+            continue;
+
+        duration = mp3_duration_from_xing(buf + i, frame_len, version, layer,
+                                          bitrate, samplerate, samples);
+        if (duration > 0)
+            break;
+
+        size_t audio_bytes = (size_t)st.st_size - (size_t)audio_start;
+        duration = ((int64_t)audio_bytes * 8 * CLOCK_FREQ)
+                 / ((int64_t)bitrate * 1000);
+        break;
+    }
+
+    free(buf);
+    return duration;
+}
+
+int64_t upnp_probe_media_duration(const char *path)
+{
+    if (path == NULL || path[0] == '\0')
+        return 0;
+
+    const char *dot = strrchr(path, '.');
+    if (dot != NULL && strcasecmp(dot, ".mp3") == 0)
+        return mp3_duration_ticks(path);
+
     return 0;
 }
 
