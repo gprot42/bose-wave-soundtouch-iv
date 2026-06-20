@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,67 @@
 
 #define SOAP_CONNECT_TIMEOUT_SEC 3
 #define SOAP_IO_TIMEOUT_SEC      5
+
+static int soap_response_ok(const char *response)
+{
+    if (response == NULL || response[0] == '\0')
+        return 0;
+
+    if (strstr(response, "HTTP/1.1 200") == NULL &&
+        strstr(response, "HTTP/1.0 200") == NULL)
+        return -1;
+
+    if (strstr(response, "<s:Fault") != NULL ||
+        strstr(response, "<Fault") != NULL)
+        return -1;
+
+    return 0;
+}
+
+static int xml_escape_append(const char *in, char *out, size_t outlen)
+{
+    size_t j = 0;
+
+    if (in == NULL || out == NULL || outlen == 0)
+        return -1;
+
+    for (size_t i = 0; in[i] != '\0'; i++)
+    {
+        const char *rep = NULL;
+        char c = in[i];
+
+        if (c == '&')
+            rep = "&amp;";
+        else if (c == '<')
+            rep = "&lt;";
+        else if (c == '>')
+            rep = "&gt;";
+        else if (c == '"')
+            rep = "&quot;";
+        else if (c == '\'')
+            rep = "&apos;";
+
+        if (rep != NULL)
+        {
+            size_t rlen = strlen(rep);
+            if (j + rlen >= outlen)
+                return -1;
+            memcpy(out + j, rep, rlen);
+            j += rlen;
+        }
+        else
+        {
+            if (j + 1 >= outlen)
+                return -1;
+            out[j++] = c;
+        }
+    }
+
+    if (j >= outlen)
+        return -1;
+    out[j] = '\0';
+    return 0;
+}
 
 static int http_post_soap(const char *url, const char *service, const char *action,
                           const char *body_xml, char *response, size_t resplen)
@@ -73,6 +135,13 @@ static int http_post_soap(const char *url, const char *service, const char *acti
     {
         freeaddrinfo(res);
         return -1;
+    }
+
+    static int sigpipe_ignored;
+    if (!sigpipe_ignored)
+    {
+        signal(SIGPIPE, SIG_IGN);
+        sigpipe_ignored = 1;
     }
 
     struct timeval tv = { .tv_sec = SOAP_IO_TIMEOUT_SEC, .tv_usec = 0 };
@@ -136,18 +205,13 @@ static int http_post_soap(const char *url, const char *service, const char *acti
         return -1;
     }
 
-    if (response == NULL || resplen == 0)
-    {
-        close(fd);
-        return 0;
-    }
-
+    char buf[4096];
     size_t total = 0;
     for (;;)
     {
-        if (total + 1 >= resplen)
+        if (total + 1 >= sizeof(buf))
             break;
-        ssize_t n = recv(fd, response + total, resplen - 1 - total, 0);
+        ssize_t n = recv(fd, buf + total, sizeof(buf) - 1 - total, 0);
         if (n < 0)
         {
             if (errno == EINTR)
@@ -158,8 +222,18 @@ static int http_post_soap(const char *url, const char *service, const char *acti
             break;
         total += (size_t)n;
     }
-    response[total] = '\0';
+    buf[total] = '\0';
     close(fd);
+
+    if (soap_response_ok(buf) != 0)
+        return -1;
+
+    if (response != NULL && resplen > 0)
+    {
+        strncpy(response, buf, resplen - 1);
+        response[resplen - 1] = '\0';
+    }
+
     return 0;
 }
 
@@ -173,12 +247,17 @@ int upnp_soap_call(const char *control_url, const char *service_type,
 
 int upnp_av_set_uri(const char *av_control, const char *media_url)
 {
-    char args[2048];
+    char escaped[2048];
+    char args[4096];
+
+    if (media_url == NULL || xml_escape_append(media_url, escaped, sizeof(escaped)) != 0)
+        return -1;
+
     snprintf(args, sizeof(args),
         "<InstanceID>0</InstanceID>"
         "<CurrentURI>%s</CurrentURI>"
         "<CurrentURIMetaData></CurrentURIMetaData>",
-        media_url);
+        escaped);
     return upnp_soap_call(av_control, UPNP_AV_TRANSPORT_SVC,
                           "SetAVTransportURI", args, NULL, 0);
 }

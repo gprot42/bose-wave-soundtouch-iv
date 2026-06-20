@@ -5,6 +5,8 @@
 #include "upnp_common.h"
 
 #include <arpa/inet.h>
+#include <signal.h>
+#include <stdbool.h>
 #include <libgen.h>
 #include <netdb.h>
 #include <pthread.h>
@@ -39,17 +41,48 @@ static const char *guess_mime(const char *path)
     return "application/octet-stream";
 }
 
-static void serve_client(int cfd, const char *file_path)
+static bool parse_range(const char *req, off_t file_size,
+                        off_t *start_out, off_t *end_out)
 {
-    char req[1024];
-    ssize_t n = recv(cfd, req, sizeof(req) - 1, 0);
-    if (n <= 0)
-    {
-        close(cfd);
-        return;
-    }
-    req[n] = '\0';
+    const char *hdr = strstr(req, "Range:");
+    if (hdr == NULL)
+        hdr = strstr(req, "range:");
+    if (hdr == NULL)
+        return false;
 
+    const char *eq = strchr(hdr, '=');
+    if (eq == NULL)
+        return false;
+
+    off_t start = 0;
+    off_t end = file_size > 0 ? file_size - 1 : 0;
+
+    if (strncmp(eq + 1, "bytes=", 6) != 0)
+        return false;
+
+    const char *spec = eq + 7;
+    if (sscanf(spec, "%lld-%lld", (long long *)&start, (long long *)&end) < 1)
+        return false;
+
+    if (end < start || start < 0)
+        return false;
+    if (start >= file_size)
+        return false;
+    if (end >= file_size)
+        end = file_size - 1;
+
+    *start_out = start;
+    *end_out = end;
+    return true;
+}
+
+static bool request_is_head(const char *req)
+{
+    return strncmp(req, "HEAD ", 5) == 0;
+}
+
+static void serve_client(int cfd, const char *file_path, const char *req)
+{
     struct stat st;
     if (stat(file_path, &st) != 0 || !S_ISREG(st.st_mode))
     {
@@ -59,17 +92,47 @@ static void serve_client(int cfd, const char *file_path)
         return;
     }
 
+    const bool is_head = request_is_head(req);
+    off_t range_start = 0;
+    off_t range_end = st.st_size > 0 ? st.st_size - 1 : 0;
+    const bool has_range = parse_range(req, st.st_size, &range_start, &range_end);
+    off_t body_len = has_range ? (range_end - range_start + 1) : st.st_size;
+
     char hdr[512];
-    int hdrlen = snprintf(hdr, sizeof(hdr),
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: %s\r\n"
-        "Content-Length: %lld\r\n"
-        "Accept-Ranges: bytes\r\n"
-        "Connection: close\r\n"
-        "\r\n",
-        guess_mime(file_path), (long long)st.st_size);
+    int hdrlen;
+    if (has_range)
+    {
+        hdrlen = snprintf(hdr, sizeof(hdr),
+            "HTTP/1.1 206 Partial Content\r\n"
+            "Content-Type: %s\r\n"
+            "Content-Length: %lld\r\n"
+            "Content-Range: bytes %lld-%lld/%lld\r\n"
+            "Accept-Ranges: bytes\r\n"
+            "Connection: close\r\n"
+            "\r\n",
+            guess_mime(file_path), (long long)body_len,
+            (long long)range_start, (long long)range_end, (long long)st.st_size);
+    }
+    else
+    {
+        hdrlen = snprintf(hdr, sizeof(hdr),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: %s\r\n"
+            "Content-Length: %lld\r\n"
+            "Accept-Ranges: bytes\r\n"
+            "Connection: close\r\n"
+            "\r\n",
+            guess_mime(file_path), (long long)body_len);
+    }
+
     if (hdrlen > 0)
         send(cfd, hdr, (size_t)hdrlen, 0);
+
+    if (is_head)
+    {
+        close(cfd);
+        return;
+    }
 
     FILE *fh = fopen(file_path, "rb");
     if (fh == NULL)
@@ -78,12 +141,24 @@ static void serve_client(int cfd, const char *file_path)
         return;
     }
 
-    char buf[65536];
-    size_t rd;
-    while ((rd = fread(buf, 1, sizeof(buf), fh)) > 0)
+    if (has_range && fseeko(fh, range_start, SEEK_SET) != 0)
     {
+        fclose(fh);
+        close(cfd);
+        return;
+    }
+
+    char buf[65536];
+    off_t remaining = body_len;
+    while (remaining > 0)
+    {
+        size_t chunk = remaining > (off_t)sizeof(buf) ? sizeof(buf) : (size_t)remaining;
+        size_t rd = fread(buf, 1, chunk, fh);
+        if (rd == 0)
+            break;
         if (send(cfd, buf, rd, 0) < 0)
             break;
+        remaining -= (off_t)rd;
     }
 
     fclose(fh);
@@ -105,7 +180,16 @@ static void *server_thread(void *arg)
                 break;
             continue;
         }
-        serve_client(cfd, srv->file_path);
+
+        char req[2048];
+        ssize_t n = recv(cfd, req, sizeof(req) - 1, 0);
+        if (n <= 0)
+        {
+            close(cfd);
+            continue;
+        }
+        req[n] = '\0';
+        serve_client(cfd, srv->file_path, req);
     }
 
     return NULL;
@@ -140,7 +224,7 @@ upnp_http_server_t *upnp_http_serve_start(const char *file_path,
     if (bind(srv->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) != 0)
         goto error;
 
-    if (listen(srv->listen_fd, 4) != 0)
+    if (listen(srv->listen_fd, 8) != 0)
         goto error;
 
     socklen_t alen = sizeof(addr);
@@ -163,6 +247,13 @@ upnp_http_server_t *upnp_http_serve_start(const char *file_path,
 
     snprintf(url_out, urllen, "http://%s:%u/%s", local_ip, srv->port, enc);
     free(enc);
+
+    static bool sigpipe_ignored;
+    if (!sigpipe_ignored)
+    {
+        signal(SIGPIPE, SIG_IGN);
+        sigpipe_ignored = true;
+    }
 
     srv->running = 1;
     if (pthread_create(&srv->thread, NULL, server_thread, srv) != 0)

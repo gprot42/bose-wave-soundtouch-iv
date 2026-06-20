@@ -147,9 +147,10 @@ static void SoutClose(vlc_object_t *obj)
 
     /*
      * With sout-keep the instance can outlive this stream; only tear down the
-     * cast session when nothing is still using it.
+     * cast session when nothing is still using it. Never clear while the
+     * renderer is actively fetching media from our HTTP server.
      */
-    if (g_session.owner_input == NULL)
+    if (g_session.owner_input == NULL && !g_session.casting && g_session.httpd == NULL)
         upnp_cast_session_clear(&g_session);
 }
 
@@ -402,12 +403,15 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
         upnp_av_stop(sys->session->device.av_control);
         sys->session->casting = false;
         sys->session->active_source[0] = '\0';
-        usleep(300000);
+        usleep(500000);
     }
-    else if (!sys->session->casting && renderer_is_busy(sys->session))
+    else if (renderer_is_busy(sys->session))
     {
+        /* Bose may be in QPlay or paused — stop before SetURI. */
         upnp_av_stop(sys->session->device.av_control);
-        usleep(300000);
+        sys->session->casting = false;
+        sys->session->active_source[0] = '\0';
+        usleep(500000);
     }
 
     if (upnp_cast_start(sys->session, source) != 0)
@@ -557,8 +561,11 @@ static void DemuxClose(vlc_object_t *obj)
     /*
      * Do not stop the renderer on close when it is still playing — a premature
      * local EOF must not cut off Bose or unblock the next queued cast.
+     * Also avoid stopping while a cast is starting but transport has not yet
+     * reached PLAYING (common when a folder parent input is torn down).
      */
     if (sys->enabled && sys->session->owner_input == get_filter_input(demux)
+     && !sys->track_active && !sys->session->casting
      && !renderer_is_busy(sys->session))
         upnp_cast_stop(sys->session);
 
@@ -668,12 +675,17 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
     {
         case DEMUX_FILTER_ENABLE:
             bind_cast_var_to_input(demux, sys->session);
-            sys->enabled = true;
-            bind_cast_input(demux, sys);
+            if (!sys->folder_mode)
+            {
+                sys->enabled = true;
+                bind_cast_input(demux, sys);
+            }
             return VLC_SUCCESS;
 
         case DEMUX_FILTER_DISABLE:
-            if (sys->enabled && sys->session->owner_input == get_filter_input(demux))
+            if (sys->enabled && sys->session->owner_input == get_filter_input(demux)
+             && !sys->track_active && !sys->session->casting
+             && !renderer_is_busy(sys->session))
                 upnp_cast_stop(sys->session);
             sys->enabled = false;
             if (sys->session->owner_input == get_filter_input(demux))
