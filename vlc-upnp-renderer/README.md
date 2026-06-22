@@ -4,7 +4,7 @@ Cast audio from VLC 3.0.x to UPnP/DLNA `MediaRenderer:1` devices — including t
 
 This replaces the manual `dlna-sender/send-to-bose.py` workflow with native VLC integration.
 
-![VLC Playback → Renderer with Bose SoundTouch](assets/screenshot-plugin.png)
+<img src="assets/screenshot-plugin.png" alt="VLC Playback → Renderer with Bose SoundTouch" width="50%">
 
 ## Quick start
 
