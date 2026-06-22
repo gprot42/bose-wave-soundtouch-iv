@@ -197,6 +197,7 @@ typedef struct upnp_demux_sys
     bool stop_sent;
     bool ui_length_set;
     bool volume_sync;
+    bool pending_default_volume;
     int last_volume;
     bool last_mute;
     vlc_tick_t cast_start;
@@ -206,6 +207,8 @@ typedef struct upnp_demux_sys
 } upnp_demux_sys_t;
 
 #define UPNP_VOLUME_UNSET (-1)
+#define UPNP_DEFAULT_CAST_VOLUME 25
+#define UPNP_DEFAULT_CAST_VLC_VOLUME (UPNP_DEFAULT_CAST_VOLUME / 100.f)
 
 #define CAST_PLAY_TIMEOUT (120 * CLOCK_FREQ)
 #define CAST_EOF_MARGIN   (3 * CLOCK_FREQ)
@@ -450,6 +453,25 @@ static void read_playlist_volume(playlist_t *playlist, float *vol, bool *mute)
     *mute = var_GetBool(playlist, "mute");
 }
 
+static void apply_default_cast_volume(upnp_demux_sys_t *sys)
+{
+    if (sys == NULL || !sys->pending_default_volume)
+        return;
+    if (!sys->enabled || !sys->track_active)
+        return;
+    if (sys->session == NULL || sys->session->device.rc_control == NULL)
+        return;
+
+    if (upnp_rc_set_volume(sys->session->device.rc_control,
+                           UPNP_DEFAULT_CAST_VOLUME) != 0)
+        return;
+
+    sys->pending_default_volume = false;
+    sys->last_volume = UPNP_DEFAULT_CAST_VOLUME;
+    msg_Dbg(sys->demux, "UPnP default volume set to %d",
+            UPNP_DEFAULT_CAST_VOLUME);
+}
+
 static void push_renderer_volume(upnp_demux_sys_t *sys, float vol, bool mute)
 {
     if (sys == NULL || !sys->enabled || !sys->track_active)
@@ -550,7 +572,7 @@ static void attach_volume_sync(demux_t *demux, upnp_demux_sys_t *sys)
     read_playlist_volume(sys->playlist, &vol, &mute);
     sys->last_volume = UPNP_VOLUME_UNSET;
     sys->last_mute = !mute;
-    push_renderer_volume(sys, vol, mute);
+    var_SetFloat(sys->playlist, "volume", UPNP_DEFAULT_CAST_VLC_VOLUME);
 }
 
 static bool input_has_ended(input_thread_t *input)
@@ -680,6 +702,8 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
     probe_length_from_next(demux, sys);
     probe_length_from_uri(source, sys);
 
+    sys->pending_default_volume = true;
+    apply_default_cast_volume(sys);
     attach_volume_sync(demux, sys);
 
     msg_Info(demux, "Casting '%s' to %s via %s", source,
@@ -724,6 +748,7 @@ static int poll_renderer_playback(demux_t *demux, upnp_demux_sys_t *sys)
             sys->play_confirmed_at = mdate();
             sys->time = 0;
             msg_Dbg(demux, "UPnP renderer confirmed playback");
+            apply_default_cast_volume(sys);
         }
         sys->seen_playing = true;
         sys->renderer_paused = false;
