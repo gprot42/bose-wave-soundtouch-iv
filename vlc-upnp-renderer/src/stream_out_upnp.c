@@ -453,6 +453,17 @@ static void read_playlist_volume(playlist_t *playlist, float *vol, bool *mute)
     *mute = var_GetBool(playlist, "mute");
 }
 
+static void set_playlist_ui_volume(playlist_t *playlist, float vol)
+{
+    if (playlist == NULL)
+        return;
+
+    /* playlist_VolumeSet updates the audio output that the UI reads;
+     * fall back to the playlist variable for hosts without an aout yet. */
+    if (playlist_VolumeSet(playlist, vol) != 0)
+        var_SetFloat(playlist, "volume", vol);
+}
+
 static void apply_default_cast_volume(upnp_demux_sys_t *sys)
 {
     if (sys == NULL || !sys->pending_default_volume)
@@ -570,9 +581,9 @@ static void attach_volume_sync(demux_t *demux, upnp_demux_sys_t *sys)
     sys->volume_sync = true;
 
     read_playlist_volume(sys->playlist, &vol, &mute);
-    sys->last_volume = UPNP_VOLUME_UNSET;
-    sys->last_mute = !mute;
-    var_SetFloat(sys->playlist, "volume", UPNP_DEFAULT_CAST_VLC_VOLUME);
+    sys->last_volume = UPNP_DEFAULT_CAST_VOLUME;
+    sys->last_mute = mute;
+    set_playlist_ui_volume(sys->playlist, UPNP_DEFAULT_CAST_VLC_VOLUME);
 }
 
 static bool input_has_ended(input_thread_t *input)
