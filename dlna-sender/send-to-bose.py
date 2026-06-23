@@ -1128,6 +1128,29 @@ def establish_track_display(
     return ok
 
 
+def preview_track_display(
+    ip: str,
+    label: str,
+    *,
+    artist: str = "",
+    album: str = "",
+    clear: bool = False,
+) -> None:
+    """Push track title to the VFD before slow prep (e.g. transcoding)."""
+    if not ip:
+        return
+    pushed = establish_track_display(
+        ip, label, artist=artist, album=album, clear=clear,
+    )
+    if pushed:
+        shown = display_title(label)
+        detail = f"{shown}" + (f" — {artist}" if artist else "")
+        print(f"Display : {detail}")
+    else:
+        print("Display : push failed (is telnet :17000 reachable?)",
+              file=sys.stderr)
+
+
 def display_refresher(
     ip: str,
     title: str,
@@ -1343,6 +1366,10 @@ def cmd_play(device: dict, source: str, *, no_transcode: bool = False):
                 shown = display_title(label)
                 if not no_transcode and needs_transcode(path):
                     print(f"\nTranscoding: {label}")
+                    preview_track_display(
+                        bose_host, label, artist=artist, album=album,
+                        clear=track_idx > 0,
+                    )
                     temp_path, cleanup = transcode_to_mp3(
                         path, title=shown, artist=artist, album=album,
                     )
@@ -1387,6 +1414,7 @@ def cmd_play(device: dict, source: str, *, no_transcode: bool = False):
         shown = display_title(label)
         artist, album = folder_metadata(os.path.dirname(source))
         print(f"Transcoding: {source}")
+        preview_track_display(bose_host, label, artist=artist, album=album)
         temp_path, cleanup = transcode_to_mp3(
             source, title=shown, artist=artist, album=album,
         )
