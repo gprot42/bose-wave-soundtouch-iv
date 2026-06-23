@@ -1,12 +1,12 @@
-# BosMan WiFi Guide
+# SoundTouch IV WiFi Guide
 
-This guide explains how to put a **Bose Wave SoundTouch Music System IV** (SoundTouch “4”) into **WiFi setup mode** so it broadcasts its own SSID, how to configure your phone (including **GrapheneOS**), and how to use the **BosMan** app.
+This guide explains how to put a **Bose Wave SoundTouch Music System IV** (SoundTouch “4”) into **WiFi setup mode** so it broadcasts its own SSID, how to configure your phone (including **GrapheneOS**), and how to provision it onto your home router. For BosMan-specific setup steps, see [bosman-soundtouch-iv-controller/README.md](bosman-soundtouch-iv-controller/README.md).
 
 ---
 
-## ⭐ START HERE: "BosMan can't connect to the Bose" — fix in order
+## ⭐ START HERE: "Can't connect during WiFi setup" — fix in order
 
-If the app won't connect, **the speaker is almost always not actually in setup mode.** Being connected to the `Bose Wave ST (…)` WiFi is **not** proof of setup mode — the speaker can broadcast that WiFi while its setup server is dead. Work through these steps **in order** and stop as soon as it connects.
+If provisioning won't connect, **the speaker is almost always not actually in setup mode.** Being connected to the `Bose Wave ST (…)` WiFi is **not** proof of setup mode — the speaker can broadcast that WiFi while its setup server is dead. Work through these steps **in order** and stop as soon as it connects.
 
 > **The golden rule:** the speaker is only ready when its front display shows **`SETUP SEE INSTRUCTIONS`** and the **Wi‑Fi light is SOLID AMBER**. If you don't see *both*, no app and no amount of phone fiddling will work — fix the speaker first.
 
@@ -19,9 +19,8 @@ If the app won't connect, **the speaker is almost always not actually in setup m
 - Join the `Bose Wave ST (…)` network. Tap **"Stay connected"** if the phone warns about no internet.
 - (Optional sanity check: the phone should get an IP like `192.0.2.x` or `192.168.1.x`.)
 
-### Step 3 — In BosMan, use the WiFi Setup panel
-- Use the **WiFi Setup panel** — **NOT** the "Search devices" / "Connect by IP" buttons.
-  - *Why:* "Search" looks for an already‑configured speaker on port 8090, which a speaker **in setup mode does not run yet.** It will always find nothing during setup. The WiFi Setup panel is the only correct path for first‑time provisioning.
+### Step 3 — Provision home WiFi
+- Open the setup page at **`http://192.0.2.1`** or **`http://192.168.1.1`** in a browser (a Mac on the setup SSID works best — see [Field-confirmed setup procedure](#field-confirmed-setup-procedure-june-2026)), or use a compatible provisioning app such as [BosMan](bosman-soundtouch-iv-controller/README.md).
 - Pick your home WiFi from the list, enter the password, submit. The speaker reboots onto your network and the `Bose Wave ST` AP disappears.
 
 ### Step 4 — Speaker won't enter setup mode / still no connection → reset the pedestal
@@ -55,13 +54,13 @@ These findings were obtained by inspecting the **official Bose SoundTouch Androi
 
 | Platform | Example devices | Setup‑AP gateway | Provisioning mechanism |
 |---|---|---|---|
-| **SM1 / Gabbo** | **Wave SoundTouch IV (SoundTouch 4)**, Wave SoundTouch Music System IV, older Wireless Link adapter | **`192.168.1.1`** (port **80**) | HTTP form posts (this is what BosMan now uses) |
+| **SM1 / Gabbo** | **Wave SoundTouch IV (SoundTouch 4)**, Wave SoundTouch Music System IV, older Wireless Link adapter | **`192.168.1.1`** (port **80**) | HTTP form posts (see protocol below) |
 | **SM2 / dual** | SoundTouch 10/20/30, SoundTouch 300, newer SoundTouch‑SDK speakers | `192.0.2.1` (port **8080**) | WebSocket subprotocol `gabbo`, `addWirelessProfile` XML |
 | ST10 telnet (legacy docs) | SoundTouch 10 (older firmware) | `192.0.2.1` (port **17000**) | Telnet CLI `network wifi profiles add …` |
 
 The gateway map is hard‑coded in the official app: `{ SM1: "192.168.1.1", SM2: "192.0.2.1" }`.
 
-### Wave IV (SM1 / Gabbo) HTTP setup protocol — what BosMan implements
+### Wave IV (SM1 / Gabbo) HTTP setup protocol
 
 Once the phone is joined to the speaker’s setup AP, the speaker is reachable at **`http://192.168.1.1`** (port 80, no TLS).
 
@@ -79,21 +78,13 @@ Once the phone is joined to the speaker’s setup AP, the speaker is reachable a
    - Fields: `ConfigManual`, `SSID`, `Passphrase`, `Key0`, `Security`, `Cipher`, `DHCPClient`, `IP`, `Mask`, `DefGW`, `DNSSrv1`, `DNSSrv2`, `ProxyServer`, `ProxyServerPort`.
    - `Security` values (uppercased): `NONE`, `WEP`, `WPAPSK`, `WPA2PSK`, `WPAWPA2PSK`. `Cipher`: `TKIP`, `CCMP`/`AES`, or `TKIP CCMP`.
    - WPA/WPA2 passwords go in `Passphrase`; WEP keys go in `Key0`.
-   - Security/cipher are reconciled to mixed mode `WPAWPA2PSK` (`Cipher = "TKIP CCMP"`) when the scanned security and cipher don’t match a single mode — BosMan uses this for manual WPA entries as the universal choice.
+   - Security/cipher are reconciled to mixed mode `WPAWPA2PSK` (`Cipher = "TKIP CCMP"`) when the scanned security and cipher don’t match a single mode — use this for manual WPA entries as the universal choice.
 
-3. After a successful POST the speaker leaves setup mode and joins the chosen network; the setup AP disappears. From then on BosMan controls it on the normal **port 8090** like any other SoundTouch speaker.
-
-### What was fixed in BosMan
-
-- Added a native `httpPost` to `WifiInfoPlugin.java` (bound to the local‑only WiFi link; the existing `tcpCommand` mangles CRLFs and can’t carry a real HTTP POST).
-- Exposed `httpPost` / `nativeHttpPost` in `src/lib/native/wifiInfo.ts`.
-- Rewrote `src/lib/bose/setup.ts` from the (non‑existent on Wave IV) telnet CLI on `192.0.2.1:17000` to the Gabbo/SM1 HTTP‑form protocol above.
-- **Multi‑host gateway resolution.** Real units do **not** always match the SM1/SM2 subnet map (a Wave SoundTouch IV in the field handed out `192.0.2.x`, i.e. the *SM2* subnet, while still speaking the *SM1* HTTP‑form protocol on port 80). `setup.ts` now probes a candidate list — last‑known‑good host → live detected gateway → both well‑known Gabbo gateways (`192.168.1.1`, `192.0.2.1`) — and locks onto whichever actually serves `/setup/index.asp`. So the subnet no longer needs to be guessed.
-- Updated the setup panel copy in `WiFiSetupPanel.svelte` / `+page.svelte`.
+3. After a successful POST the speaker leaves setup mode and joins the chosen network; the setup AP disappears. From then on the speaker is controllable on the normal **port 8090** like any other SoundTouch speaker.
 
 > **Subnet is not a reliable platform indicator.** Do not assume `192.0.2.x` ⇒ SM2/WebSocket. Probe the protocol (try `GET /setup/index.asp` on port 80 first); the Wave IV uses HTTP forms regardless of which subnet its DHCP server hands out.
 
-> SM2/dual (`192.0.2.1:8080` WebSocket `addWirelessProfile`, XML `PerformWirelessSiteSurvey`) is **not** implemented — it only matters for first‑time onboarding of the *newer* SoundTouch models, not the Wave IV.
+> SM2/dual (`192.0.2.1:8080` WebSocket `addWirelessProfile`, XML `PerformWirelessSiteSurvey`) is a separate protocol used by *newer* SoundTouch models, not the Wave IV.
 
 ---
 
@@ -116,7 +107,7 @@ $ adb shell ip rule
 - `nc 192.0.2.4 1` (the phone’s **own** IP) → `Connection refused` (allowed — unbound loopback‑ish path)
 - `ping -I wlan0 192.0.2.1` → **works** (the `-I` binds to the interface)
 
-**BosMan is unaffected** because its native `WifiInfoPlugin` (`httpGet` / `httpPost` / `tcpPortScan`) calls `bindProcessToNetwork(wifiNetwork)` (process‑wide) / `retainLocalWifi()` before connecting. A bound socket gets the right fwmark and reaches `192.0.2.1`. **Always test through the app, not the shell.**
+Apps that bind sockets to the WiFi network (rather than using the default route) can reach the gateway. Plain `adb shell nc` does not bind and will fail. **Test with a bound client or a Mac browser, not an unbound shell probe.**
 
 ### 2. A VPN / kill‑switch is a *red herring* here
 
@@ -131,25 +122,6 @@ Symptom set on the broken unit, measured through the app’s own bound sockets:
 - `tcpPortScan` of `80,81,443,8080,8090,8091,8443,8888,17000,…` → **all refused (TCP RST in ~20 ms)**
 
 ICMP/DHCP/ARP alive + **fast RST on every TCP port** = the speaker’s TCP stack is running but the **embedded setup web server is not**. The open SSID persists after setup mode times out, which is misleading. **Fix = put the unit back into setup mode** (see Factory reset / setup recovery below). A stale broadcasting AP alone proves nothing.
-
-### 4. Verifying end‑to‑end through the installed debug app (CDP)
-
-The debug APK’s WebView is debuggable, so you can drive BosMan’s real native networking from your dev machine without touching the UI:
-
-```bash
-adb forward tcp:9333 localabstract:webview_devtools_remote_$(adb shell pidof com.soundtouch.controller)
-curl -s http://127.0.0.1:9333/json   # grab the ws:// page debugger URL
-```
-
-Then over that WebSocket, `Runtime.evaluate` against the page, e.g.:
-
-```js
-await window.Capacitor.Plugins.WifiInfo.getNetworkInfo();
-await window.Capacitor.Plugins.WifiInfo.httpGet({ url: 'http://192.0.2.1/setup/index.asp', timeoutMs: 6000 });
-await window.Capacitor.Plugins.WifiInfo.tcpPortScan({ host: '192.0.2.1', ports: '80,8090,8080', connectTimeoutMs: 1500 });
-```
-
-`getNetworkInfo()` returning `gateway: "192.0.2.1"` but `httpGet` failing with `Failed to connect to /192.0.2.1:80` (a clean `ConnectException`, **not** `Permission denied`) is the proof that the socket *is* bound to WiFi and the port is genuinely closed.
 
 ---
 
@@ -192,7 +164,7 @@ Bose’s “[Cannot connect to the built‑in setup network](https://support.bos
 ### Fixes, in order of effort
 
 1. **Offline USB firmware reflash (the standard fix for a pedestal whose setup server won't launch).**
-   - Full step-by-step guide including exact firmware files: **[README.flash.md](README.flash.md)**
+   - Full step-by-step guide including exact firmware files: **[bose-usb-flash/README.flash.md](bose-usb-flash/README.flash.md)**
    - Format a **≤32 GB USB stick as FAT32** (not exFAT). On macOS, strip the junk files or the speaker won't read it:
      ```sh
      mdutil -i off /Volumes/YOUR_USB
@@ -208,10 +180,10 @@ Bose’s “[Cannot connect to the built‑in setup network](https://support.bos
    - Companion CLI: <https://github.com/timvw/bose>
    - Write‑up: [Keep your Bose SoundTouch alive after the shutdown](https://timvw.be/2026/02/17/keep-your-bose-soundtouch-speaker-alive-after-the-shutdown/)
    - Note: SoundCork enables **passwordless root SSH** via a USB `remote_services` flag file and redirects the speaker’s cloud URLs to your server. Port **8090** already needs no auth. Only do this on a trusted network.
-   - **SSH is a separate USB pass** from firmware flash — `bose-usb-prep.sh --both` does not enable SSH during the flash. See [README.flash.md § Flash vs SSH](../bose-usb-flash/README.flash.md#flash-vs-ssh-two-separate-procedures).
-   - **SSH requires Ethernet on Wave IV.** Before the SSH USB power-cycle, plug an Ethernet cable into the pedestal **network port** (RJ45, not Setup B) and your router. The SSH boot often drops WiFi and brings back the `Bose Wave ST (…)` AP — Ethernet keeps the speaker reachable on your LAN. SSH to the router's **Ethernet DHCP IP**, not `192.0.2.1` (`Connection refused` on the setup AP is normal). See [README.flash.md § Plug Ethernet before the SSH USB pass](../bose-usb-flash/README.flash.md#plug-ethernet-before-the-ssh-usb-pass-wave-iv).
+   - **SSH is a separate USB pass** from firmware flash — `bose-usb-prep.sh --both` does not enable SSH during the flash. See [README.flash.md § Flash vs SSH](bose-usb-flash/README.flash.md#flash-vs-ssh-two-separate-procedures).
+   - **SSH requires Ethernet on Wave IV.** Before the SSH USB power-cycle, plug an Ethernet cable into the pedestal **network port** (RJ45, not Setup B) and your router. The SSH boot often drops WiFi and brings back the `Bose Wave ST (…)` AP — Ethernet keeps the speaker reachable on your LAN. SSH to the router's **Ethernet DHCP IP**, not `192.0.2.1` (`Connection refused` on the setup AP is normal). See [README.flash.md § Plug Ethernet before the SSH USB pass](bose-usb-flash/README.flash.md#plug-ethernet-before-the-ssh-usb-pass-wave-iv).
 
-3. **This app (BosMan)** controls the speaker **locally** over port 8090 / WebSocket 8080 and needs none of Bose’s cloud — but the speaker must first be on your Wi‑Fi, which requires the setup server (fix #1) to work at least once.
+3. **Local control apps** (e.g. [BosMan](bosman-soundtouch-iv-controller/README.md)) talk to the speaker over port 8090 / WebSocket 8080 and need none of Bose’s cloud — but the speaker must first be on your Wi‑Fi, which requires the setup server (fix #1) to work at least once.
 
 4. **If USB reflash fails → the pedestal module is faulty** and needs Bose service/replacement. The Wave radio itself is unaffected; it is specifically the SoundTouch Wi‑Fi pedestal.
 
@@ -261,25 +233,11 @@ If the speaker won’t respond on its setup AP (section 3 above), put it firmly 
 | | WiFi (this guide) | Bluetooth |
 |---|---|---|
 | **What it does** | Network control, discovery, presets, zones, media servers | Pair a phone for audio streaming only |
-| **Used by BosMan** | Yes — BosMan talks to the speaker over **Wi‑Fi** | **No** — BosMan does not use Bluetooth |
+| **Used for control** | Yes — network apps talk to the speaker over **Wi‑Fi** | **No** — Bluetooth is audio streaming only |
 | **Button on base** | **WiFi** button (orange = setup mode) | **Bluetooth** button (separate) |
 | **Typical use** | Control the speaker, see now playing, change volume | Play music from a phone to the speaker |
 
-Pressing the **Bluetooth** button or pairing a phone over Bluetooth does **not** configure WiFi and does **not** help BosMan find or control the speaker. You need a working **WiFi** connection to the speaker (either its temporary setup network or your home router).
-
----
-
-## What BosMan needs
-
-BosMan is an independent app that controls SoundTouch speakers over the local network using the unofficial SoundTouch Web API:
-
-- **HTTP** on port **8090** — commands, volume, presets, device info
-- **WebSocket** on port **8080** — live updates (now playing, volume)
-
-Your phone must be able to reach the speaker’s IP address on the network. That works in two ways:
-
-1. **Direct setup WiFi** — phone joins the speaker’s own SSID (this guide’s main focus).
-2. **Home WiFi** — phone and speaker are both on the same router (often easier long term; see [Alternative: home WiFi](#alternative-home-wifi) below).
+Pressing the **Bluetooth** button or pairing a phone over Bluetooth does **not** configure WiFi and does **not** enable network control. You need a working **WiFi** connection to the speaker (either its temporary setup network or your home router).
 
 ---
 
@@ -333,7 +291,7 @@ Setup mode ends when:
 - Setup times out after several minutes, or
 - You press the WiFi button again / power-cycle the system (see Bose user guide)
 
-**Important:** The **Wave SoundTouch IV (SoundTouch 4)** is the older **Gabbo / SM1** platform — it is **not** a SoundTouch 10. Its setup AP does **not** expose the ST10 telnet port `17000`; instead it runs an embedded web server at **`http://192.168.1.1`** (port 80) and is provisioned over HTTP (see [Findings](#findings-reverse-engineered-wave-soundtouch-iv-setup-protocol)). BosMan now speaks that HTTP setup protocol directly. Port **8090** (normal BosMan control) is **not** available on the setup AP — it appears only after the speaker joins your home WiFi.
+**Important:** The **Wave SoundTouch IV (SoundTouch 4)** is the older **Gabbo / SM1** platform — it is **not** a SoundTouch 10. Its setup AP does **not** expose the ST10 telnet port `17000`; instead it runs an embedded web server at **`http://192.168.1.1`** (port 80) and is provisioned over HTTP (see [Findings](#findings-reverse-engineered-wave-soundtouch-iv-setup-protocol)). Port **8090** (normal SoundTouch API control) is **not** available on the setup AP — it appears only after the speaker joins your home WiFi.
 
 ---
 
@@ -365,17 +323,17 @@ This reduces aggressive “no internet” disconnects on local-only networks.
 
 ### D. Automated setup via adb (USB debugging)
 
-If the phone is connected over USB, run from the project directory:
+If the phone is connected over USB, run from the repo root:
 
 ```bash
-chmod +x scripts/configure-grapheneos-bose-wifi.sh
-./scripts/configure-grapheneos-bose-wifi.sh
+chmod +x bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh
+./bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh
 ```
 
 Or for a different SSID:
 
 ```bash
-BOSE_SSID="Bose SoundTouch Setup" ./scripts/configure-grapheneos-bose-wifi.sh
+BOSE_SSID="Bose SoundTouch Setup" ./bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh
 ```
 
 The script:
@@ -387,8 +345,6 @@ The script:
 
 You still need to tap **Stay connected** once on the phone when Android warns *“This network has no internet”*. Without that, GrapheneOS may mark the network `NO_INTERNET_PERMANENT` and drop it after a few seconds.
 
-When you open **BosMan**, approve the system dialog if Android asks whether BosMan may use the Bose WiFi network. BosMan uses `WifiNetworkSpecifier` to hold the local link while the app is open.
-
 ### E. VPN kill-switch — "Block connections without VPN" (field-confirmed blocker)
 
 If you use a VPN on your Android phone (e.g. ExpressVPN), Android has a **system-level kill switch** that is separate from the VPN app's own Network Lock setting. When enabled it blocks **all** traffic — including local LAN addresses like `192.168.0.x` — whenever the VPN tunnel is down or when a connection would bypass the tunnel.
@@ -396,8 +352,6 @@ If you use a VPN on your Android phone (e.g. ExpressVPN), Android has a **system
 **Symptom:** Safari/Chrome on the phone shows *"Your internet access is blocked"* when opening `http://192.168.0.119:8090/info`, even though:
 - the phone is on the correct subnet (`192.168.0.x`)
 - ExpressVPN shows *"Not protected"* (tunnel is down)
-- BosMan is listed in split tunneling
-
 The VPN app's own "not protected" status and split-tunneling settings do **not** override this Android OS-level block.
 
 **Fix:**
@@ -418,7 +372,7 @@ You can leave **Always-on VPN** enabled — that keeps the VPN reconnecting auto
 | Block connections without VPN ON | Kills **all** traffic including LAN (192.168.x.x) when VPN is down — **turn this off** |
 | Block connections without VPN OFF | If VPN drops, traffic falls back to normal routing; local devices always reachable |
 
-After turning it off, `http://192.168.0.119:8090/info` in the phone browser and BosMan direct-IP connection both work immediately.
+After turning it off, `http://192.168.0.119:8090/info` in the phone browser should work immediately.
 
 ### F. Verify the link (USB debugging, optional)
 
@@ -428,88 +382,7 @@ With the phone on Bose WiFi and connected over USB:
 adb shell ip -4 addr show wlan0
 ```
 
-You should see something like `inet 192.168.0.xxx/24`. If the phone disconnects from Bose WiFi within seconds, fix Part 2 before using BosMan.
-
----
-
-## Part 3 — Configure and use BosMan
-
-### Install BosMan (Android)
-
-From the project directory on a development machine:
-
-```bash
-npm run deploy:android
-```
-
-Or build manually:
-
-```bash
-npm run build:mobile
-npx cap sync android
-cd android && ./gradlew assembleDebug
-adb install android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-The launcher icon is **BosMan**.
-
-### Use BosMan on Bose setup WiFi (replaces the Bose app)
-
-1. Complete **Part 1** (orange WiFi on base) and **Part 2** (phone stays on Bose SSID).
-2. Open **BosMan** while still connected to the Bose network.
-3. BosMan detects the setup network and shows the **Set up home WiFi** panel.
-4. Tap **Scan for home WiFi networks** (BosMan reads the speaker’s site survey from `http://192.168.1.1/setup/index.asp`), pick your router SSID, enter the password, and tap **Connect speaker to home WiFi**.
-5. When the base WiFi light leaves orange (setup complete), connect the phone to the **same home WiFi** and tap **Search again** — BosMan will find the speaker on port **8090**.
-
-On the setup AP, BosMan also:
-   - Keeps using the local WiFi link (no internet required)
-   - Talks HTTP to the Gabbo setup server at **`192.168.1.1`** (port 80)
-   - Does **not** expect port **8090** until the speaker has joined home WiFi
-
-### If no devices are found
-
-1. Confirm the base WiFi light is still **orange**.
-2. Confirm the phone did **not** switch back to LTE or home WiFi.
-3. Tap **Search again** in BosMan.
-4. Use **Connect by IP** and enter the Wave IV setup gateway:
-
-   ```
-   192.168.1.1
-   ```
-   On older / other models the setup gateway may instead be:
-   ```
-   192.0.2.1
-   ```
-   or
-   ```
-   192.168.0.1
-   ```
-
-5. If that fails, try power-cycling the speaker, re-enter setup mode (orange WiFi), and reconnect the phone.
-
-### What works in BosMan
-
-- Power, play / pause / stop
-- Volume
-- Presets
-- Multi-room zones (if multiple speakers are available)
-- Media server browsing (when servers exist on the same network)
-
-### Desktop / laptop use
-
-On a PC on the **same network** as the speaker:
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173`. For a production server on your LAN:
-
-```bash
-npm run build
-npm start
-```
+You should see something like `inet 192.168.0.xxx/24`. If the phone disconnects from Bose WiFi within seconds, fix Part 2 before provisioning.
 
 ---
 
@@ -517,9 +390,9 @@ npm start
 
 You do **not** have to use the speaker’s setup SSID for everyday use.
 
-1. Put the speaker in setup mode (orange WiFi) once and configure it to join your **home router** (BosMan setup panel, which posts to the Gabbo HTTP setup server at `192.168.1.1`).
+1. Put the speaker in setup mode (orange WiFi) once and configure it to join your **home router** (browser at `http://192.0.2.1` or a provisioning app).
 2. Connect the phone to the **same home WiFi**.
-3. Open BosMan — it should discover the speaker via network scan or SSDP (on desktop).
+3. Control apps such as [BosMan](bosman-soundtouch-iv-controller/README.md) can discover the speaker via network scan or SSDP.
 
 This is often more stable than staying on the temporary Bose AP.
 
@@ -553,7 +426,7 @@ This serves the **SoundTouch Access Point Setup** page — a WiFi credential for
 
 > The firmware update page is also reachable at `http://192.0.2.1:17008/update.html` — it shows the current firmware version ("From: 27.0.6") and lets you upload a `.stu` file manually.
 
-> **Subnet note:** this unit handed out `192.0.2.x` (SM2 pattern) but the setup page is on port 80 (SM1/Gabbo HTTP form), not a WebSocket. BosMan's multi-host gateway probing handles this automatically.
+> **Subnet note:** this unit handed out `192.0.2.x` (SM2 pattern) but the setup page is on port 80 (SM1/Gabbo HTTP form), not a WebSocket. Try both `192.0.2.1` and `192.168.1.1` if one fails.
 
 #### Step 3 — Discover the device on home WiFi (Mac command line)
 
@@ -590,9 +463,9 @@ ping Bose-SM2-10cea9fd79bd.local
 | Firmware | 27.0.6 |
 | SoundTouch API | `http://192.168.0.119:8090` |
 
-#### Step 4 — BosMan connects on port 8090
+#### Step 4 — Control on port 8090
 
-With the device on home WiFi, BosMan discovers it at `192.168.0.119:8090`. Port 8090 is **not** available on the setup AP — it only starts after the device joins home WiFi. "No SoundTouch API" errors on the setup AP are expected.
+With the device on home WiFi, the SoundTouch API is at `http://192.168.0.119:8090`. Port 8090 is **not** available on the setup AP — it only starts after the device joins home WiFi.
 
 ---
 
@@ -601,20 +474,19 @@ With the device on home WiFi, BosMan discovers it at `192.168.0.119:8090`. Port 
 | Symptom | Likely cause | What to do |
 |--------|----------------|------------|
 | Phone joins Bose WiFi then disconnects | Android “no internet” logic | Stay connected, disable mobile data, use device MAC (Part 2) |
-| `No SoundTouch device at 192.168.0.1` | Wrong subnet — some units use `192.0.2.x` not `192.168.0.x` | BosMan now auto‑probes the gateway + both Gabbo subnets; if forcing, check phone IP (`adb shell ip -4 addr show wlan0`) and try `192.0.2.1` |
+| `No SoundTouch device at 192.168.0.1` | Wrong subnet — some units use `192.0.2.x` not `192.168.0.x` | Check phone IP (`adb shell ip -4 addr show wlan0`) and try `192.0.2.1` or `192.168.1.1` |
 | `No SoundTouch API at 192.168.1.1` / setup panel finds nothing, but the AP is connected | Speaker **not in active setup mode** — AP broadcasting but the port‑80 server is down (every TCP port RST) | Re‑enter setup mode until **solid amber + `SETUP SEE INSTRUCTIONS`**; restart pedestal or `RESET ALL` ([recovery](#factory-reset--setup-recovery-wave-soundtouch-series-iv)). Verify with [Field diagnostics §3‑4](#field-diagnostics-hard-won-read-this-before-debugging) |
-| `nc`/`ping` from `adb shell` says `Permission denied` to `192.0.2.1` | Unbound socket hits Android’s `prohibit` routing rule (no default network on an internet‑less AP) — **not** a VPN/firewall | Ignore the shell result; test through the app (it binds to WiFi). See [Field diagnostics §1‑2](#1-command-line-probes-adb-shell-nc-ping-lie-about-reachability) |
-| “Search devices” finds nothing during setup | `Search` uses SSDP + port 8090, which a setup‑mode speaker doesn’t run yet | Use the **WiFi Setup panel** (not Search) to provision; Search only works after the speaker joins home WiFi |
-| WiFi drops after ~5 seconds | `NO_INTERNET_PERMANENT` — Android rejected the network | Tap **Stay connected**, run `scripts/configure-grapheneos-bose-wifi.sh`, use device MAC |
+| `nc`/`ping` from `adb shell` says `Permission denied` to `192.0.2.1` | Unbound socket hits Android’s `prohibit` routing rule (no default network on an internet‑less AP) — **not** a VPN/firewall | Ignore the shell result; use a bound client or Mac browser. See [Field diagnostics §1‑2](#1-command-line-probes-adb-shell-nc-ping-lie-about-reachability) |
+| Setup page won’t load on phone | iOS/Android blocks no-internet networks | Use a Mac browser, or see [BosMan README](bosman-soundtouch-iv-controller/README.md) for Android provisioning |
+| WiFi drops after ~5 seconds | `NO_INTERNET_PERMANENT` — Android rejected the network | Tap **Stay connected**, run `bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh`, use device MAC |
 | `No devices found on network` | Phone not on same LAN as speaker | Same SSID or same home router |
-| BosMan works on PC but not phone | WebView / local HTTP on Android | Use latest BosMan APK (`CapacitorHttp` + WiFi retention) |
-| Bluetooth works but BosMan does not | Bluetooth ≠ WiFi control | Use WiFi setup (this guide), not Bluetooth pairing |
-| Browser / BosMan shows *"Your internet access is blocked"* when opening `192.168.0.x` on phone | Android OS kill-switch — **"Block connections without VPN"** is on (separate from the VPN app's own Network Lock) | **Settings → Network & internet → VPN → gear next to VPN → Block connections without VPN → Off**. Keep "Always-on VPN" on. See [Part 2 §E](#e-vpn-kill-switch----block-connections-without-vpn-field-confirmed-blocker) |
+| Bluetooth works but network control does not | Bluetooth ≠ WiFi control | Use WiFi setup (this guide), not Bluetooth pairing |
+| Browser shows *"Your internet access is blocked"* when opening `192.168.0.x` on phone | Android OS kill-switch — **"Block connections without VPN"** is on | **Settings → Network & internet → VPN → gear next to VPN → Block connections without VPN → Off**. See [Part 2 §E](#e-vpn-kill-switch----block-connections-without-vpn-field-confirmed-blocker) |
 
 ---
 
 ## Legal note
 
-BosMan is **not** affiliated with Bose Corporation. “Bose”, “SoundTouch”, and related marks are trademarks of Bose Corporation. Use at your own risk.
+This guide is community documentation and is **not** affiliated with Bose Corporation. “Bose”, “SoundTouch”, and related marks are trademarks of Bose Corporation. Use at your own risk.
 
-For API details see `doc/Bose_SoundTouch_API_v1.1.0.md` and the main [README.md](README.md).
+For BosMan API details see `bosman-soundtouch-iv-controller/doc/Bose_SoundTouch_API_v1.1.0.md` and the repo [README.md](README.md).

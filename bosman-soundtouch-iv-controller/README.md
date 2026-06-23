@@ -42,6 +42,88 @@ The app provides an intuitive user interface for controlling volume, playback, p
 
 Open `http://localhost:5173` in your browser. The app will automatically start searching for devices in your network.
 
+## Wave SoundTouch IV — WiFi setup
+
+BosMan can provision a **Bose Wave SoundTouch Music System IV** onto your home WiFi without the official Bose app. For hardware setup (setup mode, factory reset, stuck firmware), phone configuration (GrapheneOS/Android), and the reverse-engineered Gabbo HTTP protocol, see the repo-wide guide:
+
+**[README.SoundTouchIV-wifi.md](../README.SoundTouchIV-wifi.md)**
+
+### Quick fix: "BosMan can't connect to the Bose"
+
+If BosMan won't connect, **the speaker is almost always not actually in setup mode.** Work through these steps **in order** (full detail in the WiFi guide):
+
+1. **Put the speaker into setup mode** — hold the Control button on the back of the pedestal ~3 s. Success = Wi‑Fi light **solid amber** AND display **`SETUP SEE INSTRUCTIONS`**.
+2. **Connect the phone** to the `Bose Wave ST (…)` network. Tap **Stay connected** when warned about no internet.
+3. **In BosMan, use the WiFi Setup panel** — **not** "Search devices" / "Connect by IP". Search looks for port 8090, which a speaker in setup mode does not run yet. Pick your home WiFi, enter the password, submit.
+4. **Still stuck?** Reset the pedestal (soft restart, then hard reset). See the WiFi guide's [factory reset section](../README.SoundTouchIV-wifi.md#factory-reset--setup-recovery-wave-soundtouch-series-iv).
+
+### What BosMan implements
+
+BosMan speaks the Wave IV **Gabbo / SM1 HTTP-form** setup protocol (not the SoundTouch 10 telnet CLI or SM2 WebSocket path):
+
+- Native `httpPost` in `WifiInfoPlugin.java` (bound to the local-only WiFi link)
+- `src/lib/bose/setup.ts` — site survey from `/setup/index.asp`, provision via `aformHandlerConfigureProfileSettings`
+- **Multi-host gateway probing** — tries last-known-good host, live gateway, then `192.168.1.1` and `192.0.2.1` (real units may use either subnet while speaking the SM1 HTTP protocol)
+
+### Install BosMan (Android)
+
+```bash
+npm run deploy:android
+```
+
+Or build manually:
+
+```bash
+npm run build:mobile
+npx cap sync android
+cd android && ./gradlew assembleDebug
+adb install android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Use BosMan on Bose setup WiFi
+
+1. Put the speaker in setup mode and keep the phone on the Bose SSID (see WiFi guide Part 1 & 2).
+2. Open **BosMan** — it shows the **Set up home WiFi** panel.
+3. Tap **Scan for home WiFi networks**, pick your router SSID, enter the password, tap **Connect speaker to home WiFi**.
+4. When setup completes, connect the phone to the **same home WiFi** and tap **Search again** — BosMan finds the speaker on port **8090**.
+
+On the setup AP, BosMan talks HTTP to the Gabbo server (port 80) and does **not** expect port 8090 until the speaker joins home WiFi.
+
+Approve the system dialog if Android asks whether BosMan may use the Bose WiFi network (`WifiNetworkSpecifier` holds the local link).
+
+### What BosMan needs
+
+- **HTTP** on port **8090** — commands, volume, presets, device info
+- **WebSocket** on port **8080** — live updates (now playing, volume)
+
+Reachable via the speaker's setup SSID (provisioning) or home WiFi (everyday control).
+
+### BosMan-specific troubleshooting
+
+| Symptom | What to do |
+|--------|------------|
+| "Search devices" finds nothing during setup | Use the **WiFi Setup panel**, not Search |
+| `No SoundTouch device at 192.168.0.1` | BosMan auto-probes gateways; try **Connect by IP** with `192.168.1.1` or `192.0.2.1` |
+| BosMan works on PC but not phone | Use latest APK (`CapacitorHttp` + WiFi retention) |
+| Browser / BosMan shows *"Your internet access is blocked"* | Turn off Android **Block connections without VPN** (Settings → VPN → gear) |
+
+### Android debugging (CDP)
+
+The debug APK's WebView is debuggable:
+
+```bash
+adb forward tcp:9333 localabstract:webview_devtools_remote_$(adb shell pidof com.soundtouch.controller)
+curl -s http://127.0.0.1:9333/json
+```
+
+Over the WebSocket debugger, `Runtime.evaluate`:
+
+```js
+await window.Capacitor.Plugins.WifiInfo.getNetworkInfo();
+await window.Capacitor.Plugins.WifiInfo.httpGet({ url: 'http://192.0.2.1/setup/index.asp', timeoutMs: 6000 });
+await window.Capacitor.Plugins.WifiInfo.tcpPortScan({ host: '192.0.2.1', ports: '80,8090,8080', connectTimeoutMs: 1500 });
+```
+
 ## ⚖️ Legal Disclaimer
 
 **Bosman is an independent software solution and is not affiliated with Bose Corporation.**

@@ -26,7 +26,7 @@ and streaming music over DLNA/UPnP without Bose's apps or servers.
 | **This file** | Streaming music over DLNA/UPnP, choosing apps, understanding architecture |
 | [`bose-usb-flash/README.flash.md`](bose-usb-flash/README.flash.md) | Pedestal stuck — Wi-Fi AP up but no TCP ports respond |
 | [`bosman-soundtouch-iv-controller/README.md`](bosman-soundtouch-iv-controller/README.md) | Running and developing the BosMan app |
-| [`bosman-soundtouch-iv-controller/README.SoundTouchIV-wifi.md`](bosman-soundtouch-iv-controller/README.SoundTouchIV-wifi.md) | Wi-Fi setup protocol, field diagnostics, root-cause analysis |
+| [`README.SoundTouchIV-wifi.md`](README.SoundTouchIV-wifi.md) | Wi-Fi setup protocol, field diagnostics, root-cause analysis |
 
 ---
 
@@ -292,12 +292,46 @@ servers — including the Bose itself (a renderer, not a server).
 
 ---
 
+## Supported audio formats
+
+The Bose **decodes** audio on the pedestal — your controller only hands it a URL. If the
+format is unsupported, the cast can look successful (transport shows *Playing*) but you
+get silence or the track skips immediately.
+
+**Wave SoundTouch IV (this repo's focus)** — tested on a live unit (`90E9CA`):
+
+| Format | Plays on Wave IV? | Notes |
+|--------|-------------------|-------|
+| **MP3** | Yes | Most reliable for direct casting |
+| **AAC / M4A** | Yes | Unprotected AAC only (not old iTunes DRM) |
+| **WMA** | Yes | |
+| **WAV** | Yes | |
+| **FLAC** | **No** | Cast succeeds but the Bose does not decode FLAC |
+| **OGG / Opus** | No | Not supported on the older Gabbo/SM1 firmware |
+
+**Newer standalone SoundTouch speakers** (SoundTouch 10/20/30 and similar SM2-era
+models) reportedly accept a wider set — community testing found **FLAC, OGG, and WAV**
+in addition to MP3/AAC/WMA. This repo has not verified every later model; if FLAC
+matters to you, test on your hardware or let a media server transcode to MP3.
+
+**Workarounds for FLAC libraries:**
+
+- Transcode to MP3/AAC before casting (`ffmpeg -i track.flac -q:a 2 track.mp3`).
+- Use a DLNA media server with on-the-fly transcoding (UMS, Serviio, Plex) and browse
+  from BubbleUPnP or BosMan rather than pushing raw FLAC files.
+
+`send-to-bose.py` and the VLC plugin will happily *serve* FLAC over HTTP — that only
+means the URL is reachable, not that the Bose can play it.
+
+---
+
 ## What works (and what doesn't)
 
 | What you want to do | Works? | How |
 |--------------------|--------|-----|
-| Play files from Android phone | Yes | BubbleUPnP → Renderer = Bose |
-| Play files from Mac | Yes | `send-to-bose.py`, VLC + `vlc-upnp-renderer`, Elmedia Player, or Swinsian |
+| Play MP3/AAC/WAV from Android phone | Yes | BubbleUPnP → Renderer = Bose |
+| Play FLAC on Wave SoundTouch IV | No | Transcode to MP3/AAC, or use a server that transcodes |
+| Play files from Mac | Yes | `send-to-bose.py`, VLC + `vlc-upnp-renderer`, Elmedia Player, or Swinsian (use MP3/AAC/WAV on Wave IV) |
 | Browse Mac music library in BosMan | Yes | Run UMS/Gerbera on Mac + BosMan Media tab |
 | Browse Mac music library in BubbleUPnP | Yes | Run UMS/Gerbera on Mac + BubbleUPnP Library → UPnP/DLNA |
 | Internet radio on the Bose | Yes | BubbleUPnP → Internet Radio → Renderer = Bose |

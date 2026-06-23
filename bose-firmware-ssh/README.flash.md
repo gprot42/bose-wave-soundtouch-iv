@@ -7,7 +7,7 @@ app (including the official Bose app) can connect. This is not a phone or
 app problem. The setup web server inside the pedestal never launched. The
 fix is a forced offline firmware reflash via a USB stick.
 
-See [README.SoundTouchIV-wifi.md](README.SoundTouchIV-wifi.md) for the
+See [README.SoundTouchIV-wifi.md](../README.SoundTouchIV-wifi.md) for the
 full diagnosis and root-cause explanation.
 
 ---
@@ -406,7 +406,7 @@ After the reflash reboot:
    onto your home network. The `Bose Wave ST` AP disappears.
 
 If setup mode still produces no port-80 response after reflashing, see
-the [Field diagnostics section of README.SoundTouchIV-wifi.md](README.SoundTouchIV-wifi.md#field-diagnostics-hard-won-read-this-before-debugging)
+the [Field diagnostics section of README.SoundTouchIV-wifi.md](../README.SoundTouchIV-wifi.md#field-diagnostics-hard-won-read-this-before-debugging)
 for how to probe directly through the app.
 
 ---
@@ -559,4 +559,4 @@ running this — leaving it inserted can cause odd boots on the next power cycle
 - SoundCork project: <https://github.com/timvw/soundcork>
 - SoundCork speaker setup: <https://github.com/timvw/soundcork/blob/main/docs/speaker-setup.md>
 - Bose cloud EOL notice: <https://www.bose.com/soundtouch-end-of-life>
-- WiFi setup guide: [README.SoundTouchIV-wifi.md](README.SoundTouchIV-wifi.md)
+- WiFi setup guide: [README.SoundTouchIV-wifi.md](../README.SoundTouchIV-wifi.md)
