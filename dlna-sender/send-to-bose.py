@@ -12,6 +12,7 @@ Usage
   python3 send-to-bose.py --status                 # show transport state
   python3 send-to-bose.py --volume 40              # set volume 0-100
   python3 send-to-bose.py --ip 192.168.1.50 ...   # skip SSDP, use known IP
+  python3 send-to-bose.py --debug album/          # verbose transport/stream/transcode logs
   python3 send-to-bose.py track.flac              # auto-transcode FLAC→MP3 at serve time
   python3 send-to-bose.py track.flac --no-transcode   # serve as-is (Wave IV won't decode FLAC)
   ffmpeg -i track.flac -f mp3 - | python3 send-to-bose.py -   # pipe pre-transcoded MP3
@@ -62,7 +63,15 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import BinaryIO, Callable
 
-DISPLAY_INTERVAL = 1.5   # re-push title; firmware overwrites on now-playing refresh
+DISPLAY_INTERVAL = 3.0   # re-push title; firmware overwrites on now-playing refresh
+
+DEBUG = False
+
+
+def debug_log(msg: str) -> None:
+    if DEBUG:
+        print(f"[debug] {msg}", file=sys.stderr, flush=True)
+
 
 # ── SSDP ──────────────────────────────────────────────────────────────────────
 
@@ -229,7 +238,12 @@ def soap(url: str, service: str, action: str, args_xml: str = "") -> str | None:
 
 
 def av_soap(av_ctrl: str, action: str, args: str = "") -> str | None:
-    return soap(av_ctrl, AV_SVC, action, args)
+    if DEBUG:
+        debug_log(f"SOAP AVTransport.{action}")
+    resp = soap(av_ctrl, AV_SVC, action, args)
+    if DEBUG and resp is None:
+        debug_log(f"SOAP AVTransport.{action} failed")
+    return resp
 
 
 def rc_soap(rc_ctrl: str, action: str, args: str = "") -> str | None:
@@ -277,6 +291,8 @@ class _MediaHandler(http.server.BaseHTTPRequestHandler):
 
     serve_dir: str = ""
     single_file: str | None = None
+    debug: bool = False
+    _CHUNK = 65536
 
     def _resolve_path(self) -> str | None:
         if self.single_file:
@@ -292,36 +308,106 @@ class _MediaHandler(http.server.BaseHTTPRequestHandler):
             return None
         return file_path if os.path.isfile(file_path) else None
 
+    @staticmethod
+    def _parse_range(range_header: str, size: int) -> tuple[int, int] | None:
+        """Parse a Range header; return inclusive (start, end) byte offsets."""
+        if not range_header.startswith("bytes="):
+            return None
+        spec = range_header[6:].strip().split(",", 1)[0].strip()
+        try:
+            if spec.startswith("-"):
+                suffix = int(spec[1:])
+                if suffix <= 0:
+                    return None
+                start = max(0, size - suffix)
+                return start, size - 1
+            start_s, end_s = spec.split("-", 1)
+            start = int(start_s) if start_s else 0
+            end = int(end_s) if end_s else size - 1
+        except ValueError:
+            return None
+        end = min(end, size - 1)
+        if start < 0 or start > end or start >= size:
+            return None
+        return start, end
+
+    def _file_headers(self, file_path: str) -> tuple[int, str]:
+        try:
+            size = os.path.getsize(file_path)
+        except OSError:
+            return 0, ""
+        mime, _ = mimetypes.guess_type(file_path)
+        if not mime:
+            mime = "application/octet-stream"
+        return size, mime
+
+    def _send_file(
+        self,
+        file_path: str,
+        *,
+        range_header: str | None = None,
+        send_body: bool = True,
+    ) -> None:
+        size, mime = self._file_headers(file_path)
+        if size <= 0:
+            self.send_error(404)
+            return
+
+        start, end = 0, size - 1
+        partial = False
+        if range_header:
+            parsed = self._parse_range(range_header, size)
+            if parsed is None:
+                self.send_error(416, "Requested Range Not Satisfiable")
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            start, end = parsed
+            partial = True
+
+        length = end - start + 1
+        if partial:
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        else:
+            self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if not send_body:
+            return
+        try:
+            with open(file_path, "rb") as fh:
+                fh.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = fh.read(min(self._CHUNK, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass
+
+    def do_HEAD(self):
+        file_path = self._resolve_path()
+        if not file_path:
+            self.send_error(404)
+            return
+        self._send_file(file_path, send_body=False)
+
     def do_GET(self):
         file_path = self._resolve_path()
         if not file_path:
             self.send_error(404)
             return
+        self._send_file(file_path, range_header=self.headers.get("Range"))
 
-        try:
-            size = os.path.getsize(file_path)
-        except OSError:
-            self.send_error(404)
-            return
-
-        mime, _ = mimetypes.guess_type(file_path)
-        if not mime:
-            mime = "application/octet-stream"
-
-        self.send_response(200)
-        self.send_header("Content-Type",   mime)
-        self.send_header("Content-Length", str(size))
-        self.send_header("Accept-Ranges",  "bytes")
-        self.send_header("Connection",     "close")
-        self.end_headers()
-        try:
-            with open(file_path, "rb") as fh:
-                self.wfile.write(fh.read())
-        except (OSError, BrokenPipeError):
-            pass
-
-    def log_message(self, *_):
-        pass   # suppress access log
+    def log_message(self, fmt: str, *args) -> None:
+        if type(self).debug:
+            debug_log(f"HTTP {self.address_string()} {fmt % args}")
 
 
 class _StreamHandler(http.server.BaseHTTPRequestHandler):
@@ -330,6 +416,7 @@ class _StreamHandler(http.server.BaseHTTPRequestHandler):
     byte_source: BinaryIO | None = None
     mime: str = "audio/mpeg"
     on_close: Callable[[], None] | None = None
+    debug: bool = False
 
     def do_GET(self):
         src = self.byte_source
@@ -360,8 +447,9 @@ class _StreamHandler(http.server.BaseHTTPRequestHandler):
             if cb:
                 cb()
 
-    def log_message(self, *_):
-        pass
+    def log_message(self, fmt: str, *args) -> None:
+        if type(self).debug:
+            debug_log(f"HTTP {self.address_string()} {fmt % args}")
 
 
 def needs_transcode(path: str) -> bool:
@@ -375,7 +463,84 @@ def require_ffmpeg() -> str:
             "ffmpeg not found in PATH — install it or pass --no-transcode.\n"
             "  brew install ffmpeg"
         )
+    debug_log(f"ffmpeg: {exe}")
     return exe
+
+
+def probe_duration(path: str) -> float | None:
+    """Return media duration in seconds via ffprobe, if available."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        debug_log("ffprobe: not found in PATH (duration detection disabled)")
+        return None
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        debug_log(f"ffprobe failed for {path}: {(result.stderr or '').strip()}")
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def parse_upnp_time(value: str | None) -> float | None:
+    """Parse UPnP RelTime/TrackDuration ('H:MM:SS' or 'MM:SS') to seconds."""
+    if not value or value == "NOT_IMPLEMENTED":
+        return None
+    parts = value.strip().split(":")
+    try:
+        if len(parts) == 3:
+            hours, minutes, seconds = parts
+            return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+        if len(parts) == 2:
+            minutes, seconds = parts
+            return int(minutes) * 60 + float(seconds)
+        if len(parts) == 1:
+            return float(parts[0])
+    except ValueError:
+        return None
+    return None
+
+
+def format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "?"
+    whole = max(0, int(seconds))
+    return f"{whole // 60}:{whole % 60:02d}"
+
+
+def debug_print_toolchain() -> None:
+    for name in ("ffmpeg", "ffprobe"):
+        path = shutil.which(name)
+        if not path:
+            debug_log(f"{name}: not found in PATH")
+            continue
+        try:
+            result = subprocess.run(
+                [path, "-version"], capture_output=True, text=True, timeout=5,
+            )
+            first = (result.stdout or result.stderr or "").splitlines()
+            debug_log(f"{name}: {path} ({first[0] if first else '?'})")
+        except Exception as exc:
+            debug_log(f"{name}: {path} (version check failed: {exc})")
+
+
+def debug_print_device(device: dict, bose_ip: str | None = None) -> None:
+    debug_log(
+        f"renderer: {device['friendly_name']} av={device['av_ctrl']} "
+        f"rc={device.get('rc_ctrl') or '(none)'}"
+    )
+    if bose_ip:
+        debug_log(f"local route to {bose_ip}: {local_ip_toward(bose_ip)}")
 
 
 def folder_metadata(folder_path: str) -> tuple[str, str]:
@@ -417,18 +582,27 @@ def transcode_to_mp3(
     if album:
         meta_args += ["-metadata", f"album={album}"]
 
+    debug_log(f"transcode start: {input_path} -> {temp_path}")
+    started = time.monotonic()
     result = subprocess.run(
         [ffmpeg, "-i", input_path, *meta_args, *FFMPEG_MP3_ARGS, temp_path],
         stderr=subprocess.PIPE,
         text=True,
     )
+    elapsed = time.monotonic() - started
     if result.returncode != 0 or not os.path.isfile(temp_path):
         cleanup()
         err = (result.stderr or "").strip()
         sys.exit(f"ffmpeg failed for {input_path}:\n{err}")
-    if os.path.getsize(temp_path) == 0:
+    size = os.path.getsize(temp_path)
+    if size == 0:
         cleanup()
         sys.exit(f"ffmpeg produced an empty file for {input_path}")
+    duration = probe_duration(temp_path)
+    debug_log(
+        f"transcode done: {format_duration(duration)} "
+        f"size={size} bytes elapsed={elapsed:.1f}s"
+    )
     return temp_path, cleanup
 
 
@@ -451,6 +625,7 @@ def start_stream_server(
     """Serve a byte stream over HTTP; return (httpd, media_url)."""
     _StreamHandler.byte_source = byte_source
     _StreamHandler.on_close = on_close
+    _StreamHandler.debug = DEBUG
     httpd = http.server.HTTPServer(("0.0.0.0", 0), _StreamHandler)
     port = httpd.server_address[1]
     my_ip = local_ip_toward(bose_ip)
@@ -471,10 +646,19 @@ def start_media_server(
 
     _MediaHandler.single_file = os.path.abspath(file_path) if file_path else None
     _MediaHandler.serve_dir = os.path.abspath(dir_path or os.path.dirname(file_path))
+    _MediaHandler.debug = DEBUG
     httpd = http.server.HTTPServer(("0.0.0.0", 0), _MediaHandler)
     port  = httpd.server_address[1]
     my_ip = local_ip_toward(bose_ip)
     base  = f"http://{my_ip}:{port}"
+    if file_path:
+        debug_log(
+            f"HTTP server :{port} single-file "
+            f"{os.path.basename(file_path)} "
+            f"({os.path.getsize(file_path)} bytes)"
+        )
+    else:
+        debug_log(f"HTTP server :{port} dir={_MediaHandler.serve_dir}")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
     def url_for_file(path: str) -> str:
@@ -510,6 +694,7 @@ def cmd_status(device: dict):
     for el in root.iter():
         el.tag = el.tag.split("}")[-1]
     state = getattr(root.find(".//CurrentTransportState"), "text", "?")
+    status = getattr(root.find(".//CurrentTransportStatus"), "text", None)
     uri   = None
     resp2 = av_soap(device["av_ctrl"], "GetMediaInfo",
                     "<InstanceID>0</InstanceID>")
@@ -518,7 +703,15 @@ def cmd_status(device: dict):
         for el in r2.iter():
             el.tag = el.tag.split("}")[-1]
         uri = getattr(r2.find(".//CurrentURI"), "text", None)
+    rel, track_dur = get_position_info(device)
     print(f"State : {state}")
+    if status:
+        print(f"Status: {status}")
+    if rel is not None:
+        pos = format_duration(rel)
+        if track_dur:
+            pos += f" / {format_duration(track_dur)}"
+        print(f"Position: {pos}")
     if uri:
         print(f"URI   : {uri}")
 
@@ -541,6 +734,20 @@ def get_transport_state(device: dict) -> str | None:
     for el in root.iter():
         el.tag = el.tag.split("}")[-1]
     return getattr(root.find(".//CurrentTransportState"), "text", None)
+
+
+def get_position_info(device: dict) -> tuple[float | None, float | None]:
+    """Return (RelTime seconds, TrackDuration seconds) from GetPositionInfo."""
+    resp = av_soap(device["av_ctrl"], "GetPositionInfo",
+                   "<InstanceID>0</InstanceID>")
+    if not resp:
+        return None, None
+    root = ET.fromstring(resp)
+    for el in root.iter():
+        el.tag = el.tag.split("}")[-1]
+    rel = parse_upnp_time(getattr(root.find(".//RelTime"), "text", None))
+    track_dur = parse_upnp_time(getattr(root.find(".//TrackDuration"), "text", None))
+    return rel, track_dur
 
 
 def xml_escape(text: str) -> str:
@@ -640,16 +847,95 @@ def wait_for_track_end(
     device: dict,
     poll: float = 2.0,
     on_poll: Callable[[], None] | None = None,
+    *,
+    expected_duration: float | None = None,
+    stopped_polls: int = 2,
+    error_polls: int = 5,
 ) -> None:
-    """Block until the current track finishes, or raise KeyboardInterrupt."""
+    """
+    Block until the current track finishes, or raise KeyboardInterrupt.
+
+    Bose SoundTouch often reports STOPPED for only one poll at track end, then
+    returns to PLAYING at 0:00:00 on the same URI (loop).  TrackDuration from
+    UPnP is usually 0:00:00, so we also use ffprobe duration and RelTime
+    position/reset detection.
+    """
+    if expected_duration:
+        debug_log(f"track wait: expected duration {format_duration(expected_duration)}")
     if not wait_for_playback_start(device):
+        debug_log("track wait: playback never started")
         return
+    stopped_streak = 0
+    error_streak = 0
+    last_rel = 0.0
+    end_margin = 2.0
     while True:
         if on_poll:
             on_poll()
         state = get_transport_state(device)
-        if state in ("STOPPED", "NO_MEDIA_PRESENT", None):
+        rel, track_dur = get_position_info(device)
+        if track_dur and not expected_duration:
+            expected_duration = track_dur
+
+        if rel is not None and expected_duration:
+            if rel >= expected_duration - end_margin:
+                debug_log(
+                    f"track end: position {format_duration(rel)} reached "
+                    f"expected {format_duration(expected_duration)} "
+                    f"(state={state})"
+                )
+                return
+
+        if state in ("STOPPED", "NO_MEDIA_PRESENT"):
+            stopped_streak += 1
+            error_streak = 0
+            near_end = (
+                expected_duration is not None
+                and (
+                    (rel is not None and rel >= expected_duration - 5)
+                    or last_rel >= expected_duration - 5
+                )
+            )
+            if near_end or stopped_streak >= stopped_polls:
+                debug_log(
+                    f"track end: state={state} streak={stopped_streak} "
+                    f"rel={format_duration(rel)} last={format_duration(last_rel)}"
+                )
+                return
+        elif state is None:
+            error_streak += 1
+            stopped_streak = 0
+            if error_streak >= error_polls:
+                print(
+                    "  Warning: lost contact with renderer; assuming track ended.",
+                    file=sys.stderr,
+                )
+                debug_log("track end: renderer contact lost")
+                return
+        elif (
+            state == "PLAYING"
+            and rel is not None
+            and last_rel >= 30
+            and rel <= 5
+            and (expected_duration is None or last_rel >= expected_duration * 0.85)
+        ):
+            debug_log(
+                f"track end: position reset {format_duration(last_rel)} -> "
+                f"{format_duration(rel)} (renderer looped same URI)"
+            )
             return
+        else:
+            stopped_streak = 0
+            error_streak = 0
+
+        if rel is not None:
+            last_rel = rel
+        if DEBUG:
+            debug_log(
+                f"transport poll: state={state} rel={format_duration(rel)} "
+                f"expected={format_duration(expected_duration)} "
+                f"stopped={stopped_streak} errors={error_streak}"
+            )
         _sleep_interruptible(poll)
 
 
@@ -706,8 +992,7 @@ def push_display_title(
             fields["album"] = album
         if source:
             fields["source"] = source
-        cmds = mod.build_commands(fields, clear=False)
-        last = mod.push(ip, cmds)
+        last = mod.push_fields(ip, fields)
         if "OK" not in last:
             print(f"  Display warning: rdsend unclear: {last!r}", file=sys.stderr)
             return False
@@ -748,9 +1033,18 @@ def cmd_volume(device: dict, level: int):
     print(f"Volume set to {level}.")
 
 
+TrackSpec = tuple[str, str] | tuple[str, str, float | None]
+
+
+def _track_parts(track: TrackSpec) -> tuple[str, str, float | None]:
+    if len(track) >= 3:
+        return track[0], track[1], track[2]
+    return track[0], track[1], None
+
+
 def _play_tracks(
     device: dict,
-    tracks: list[tuple[str, str]],
+    tracks: list[TrackSpec],
     *,
     block: bool | None = None,
     artist: str = "",
@@ -760,10 +1054,12 @@ def _play_tracks(
         block = len(tracks) == 1
 
     bose_ip = urllib.parse.urlparse(device["location"]).hostname or ""
+    debug_print_device(device, bose_ip or None)
 
     print(f"Renderer: {device['friendly_name']}  ({device['av_ctrl']})")
     try:
-        for i, (label, media_url) in enumerate(tracks, 1):
+        for i, track in enumerate(tracks, 1):
+            label, media_url, expected_duration = _track_parts(track)
             if len(tracks) > 1:
                 print(f"\n[{i}/{len(tracks)}] {label}")
                 print(f"URL: {media_url}")
@@ -774,6 +1070,10 @@ def _play_tracks(
             if bose_ip:
                 push_display_title(bose_ip, label, artist=artist, album=album)
 
+            debug_log(
+                f"play track {i}/{len(tracks)}: {label} "
+                f"duration={format_duration(expected_duration)} url={media_url}"
+            )
             if not play_uri(device, media_url, title=shown, artist=artist, album=album):
                 sys.exit("Play command failed — check device IP and port.")
 
@@ -803,7 +1103,12 @@ def _play_tracks(
                         refresh_display()
                     _sleep_interruptible(2)
             else:
-                wait_for_track_end(device, on_poll=refresh_display)
+                wait_for_track_end(
+                    device,
+                    on_poll=refresh_display,
+                    expected_duration=expected_duration,
+                )
+                debug_log(f"track finished: {label}")
 
         if len(tracks) > 1:
             print("\nFolder finished.")
@@ -850,7 +1155,10 @@ def cmd_play(device: dict, source: str, *, no_transcode: bool = False):
 
         if not any(not no_transcode and needs_transcode(f) for f in files):
             httpd, _, url_for = start_media_server(bose_host, dir_path=source)
-            tracks = [(os.path.basename(f), url_for(f)) for f in files]
+            tracks = [
+                (os.path.basename(f), url_for(f), probe_duration(f))
+                for f in files
+            ]
             try:
                 _play_tracks(device, tracks, artist=artist, album=album)
             finally:
@@ -865,22 +1173,26 @@ def cmd_play(device: dict, source: str, *, no_transcode: bool = False):
                 temp_path, cleanup = transcode_to_mp3(
                     path, title=shown, artist=artist, album=album,
                 )
+                duration = probe_duration(temp_path)
                 httpd, _, url_for = start_media_server(
                     bose_host, file_path=temp_path,
                 )
                 try:
                     _play_tracks(
-                        device, [(label, url_for(temp_path))], block=False,
+                        device, [(label, url_for(temp_path), duration)],
+                        block=False,
                         artist=artist, album=album,
                     )
                 finally:
                     httpd.shutdown()
                     cleanup()
             else:
+                duration = probe_duration(path)
                 httpd, _, url_for = start_media_server(bose_host, file_path=path)
                 try:
                     _play_tracks(
-                        device, [(label, url_for(path))], block=False,
+                        device, [(label, url_for(path), duration)],
+                        block=False,
                         artist=artist, album=album,
                     )
                 finally:
@@ -900,10 +1212,12 @@ def cmd_play(device: dict, source: str, *, no_transcode: bool = False):
         )
         httpd, _, url_for = start_media_server(bose_host, file_path=temp_path)
         media_url = url_for(temp_path)
+        duration = probe_duration(temp_path)
         print(f"URL     : {media_url}")
         try:
             _play_tracks(
-                device, [(label, media_url)], artist=artist, album=album,
+                device, [(label, media_url, duration)],
+                artist=artist, album=album,
             )
         finally:
             httpd.shutdown()
@@ -913,9 +1227,10 @@ def cmd_play(device: dict, source: str, *, no_transcode: bool = False):
     print(f"Serving : {source}")
     httpd, _, url_for = start_media_server(bose_host, file_path=source)
     media_url = url_for(source)
+    duration = probe_duration(source)
     print(f"URL     : {media_url}")
     try:
-        _play_tracks(device, [(os.path.basename(source), media_url)])
+        _play_tracks(device, [(os.path.basename(source), media_url, duration)])
     finally:
         httpd.shutdown()
 
@@ -1059,8 +1374,15 @@ def main():
                    help="Skip SSDP; use known device IP (default port 8091)")
     p.add_argument("--location", metavar="URL",
                    help="Skip SSDP; use full device-description URL")
+    p.add_argument("--debug", action="store_true",
+                   help="Verbose diagnostics (ffmpeg, transport, HTTP, transcode)")
 
     args = p.parse_args()
+
+    global DEBUG
+    DEBUG = args.debug
+    if DEBUG:
+        debug_print_toolchain()
 
     if not (args.source or args.stop or args.status or args.volume is not None):
         p.print_help()

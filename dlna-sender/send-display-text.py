@@ -151,6 +151,23 @@ def push(ip: str, commands: list[str], *, refresh: bool = True) -> str:
     return last
 
 
+def prepare_display_fields(fields: dict[str, str], *, clear: bool = False) -> dict[str, str]:
+    """
+    Copy fields for VFD push. Mirrors title → state so rdsend state paints the
+    panel (ttag alone returns OK but may not show when idle or after refresh).
+    """
+    display_fields = dict(fields)
+    if not clear and STATE_FIELD not in display_fields and "title" in display_fields:
+        display_fields[STATE_FIELD] = display_fields["title"]
+    return display_fields
+
+
+def push_fields(ip: str, fields: dict[str, str], *, clear: bool = False, refresh: bool = True) -> str:
+    """Set remote-display fields and push them to the VFD."""
+    commands = build_commands(prepare_display_fields(fields, clear=clear), clear)
+    return push(ip, commands, refresh=refresh)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Show custom text on the Wave SoundTouch IV front display via the :17000 CLI.",
@@ -185,17 +202,10 @@ def main() -> None:
         p.print_help()
         sys.exit(0)
 
-    # title/artist lines need rdsend ttag (now-playing overlay). When nothing is
-    # playing, only the state line is visible — mirror title so --title works idle.
-    display_fields = dict(fields)
-    if not args.clear and STATE_FIELD not in display_fields and "title" in display_fields:
-        display_fields[STATE_FIELD] = display_fields["title"]
-
-    commands = build_commands(display_fields, args.clear)
     shown = ", ".join(f"{k}={v!r}" for k, v in fields.items()) or "(cleared)"
 
     try:
-        last = push(args.ip, commands)
+        last = push_fields(args.ip, fields, clear=args.clear)
         if "OK" not in last:
             print(f"Warning: rdsend response unclear: {last!r}", file=sys.stderr)
         print(f"Pushed to {args.ip} display: {shown}")
@@ -207,7 +217,7 @@ def main() -> None:
             while deadline is None or time.monotonic() < deadline:
                 time.sleep(interval)
                 try:
-                    push(args.ip, commands)
+                    push_fields(args.ip, fields, clear=args.clear)
                 except OSError as e:
                     print(f"re-push failed: {e}", file=sys.stderr)
     except KeyboardInterrupt:
