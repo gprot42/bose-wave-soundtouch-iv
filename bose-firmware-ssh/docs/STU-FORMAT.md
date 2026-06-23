@@ -1,6 +1,6 @@
 # Update.stu container format (Wave IV / 27.00.06)
 
-> **Status: fully reverse-engineered.** Verified by a byte-identical
+> **Status: fully documented and verified.** Confirmed by a byte-identical
 > extract -> repack round-trip (`scripts/repack-stu.py`) reproducing the stock
 > MD5 `88c63e440cafa969ff19fb98b39be24a`.
 

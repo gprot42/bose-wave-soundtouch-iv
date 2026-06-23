@@ -1,6 +1,6 @@
 # Bose Firmware SSH Research (Wave SoundTouch IV)
 
-Fork of [`bose-usb-flash/`](../bose-usb-flash/) for **reverse-engineering `Update.stu`** and exploring a rebuilt firmware image with **persistent SSH**.
+Fork of [`bose-usb-flash/`](../bose-usb-flash/) for **analyzing `Update.stu`** and building a firmware image with **persistent SSH**.
 
 The parent folder handles proven USB recovery (`Update.stu` flash + `remote_services` stick). This folder is the **research track**: analyze, patch, repack, and eventually deliver custom firmware via USB or redirected `swUpdateUrl`.
 
@@ -9,7 +9,7 @@ The parent folder handles proven USB recovery (`Update.stu` flash + `remote_serv
 | Milestone | State |
 |-----------|--------|
 | Download & fingerprint 27.00.06 `Update.stu` | Done |
-| Reverse-engineer the `.stu` container (9 sections, CRC32 map) | **Done** — see [`docs/STU-FORMAT.md`](docs/STU-FORMAT.md) |
+| Analyze + document the `.stu` container (9 sections, CRC32 map) | **Done** — see [`docs/STU-FORMAT.md`](docs/STU-FORMAT.md) |
 | Extract rootfs (UBI) cleanly | **Done** — `ubi.img` section -> `ubi_reader` |
 | Locate the SSH gate | **Done** — `/usr/bin/remote_services_enabled` (180-byte shell script) |
 | Build patched flashable `.stu` (macOS-native, in-place) | **Done** — `scripts/inplace-patch-stu.py` (123 bytes changed) |
@@ -129,7 +129,7 @@ Bake **persistent SSH** into firmware so owners do not depend on:
 ## Realistic paths (short)
 
 1. **Phase A — Binary patch in place** inside the container: force `remote_services_enabled` true or auto-create `/mnt/nv/remote_services` at boot.
-2. **Phase B — Unpack/repack** the `SoftwareUpdateInstaller` container once format is RE'd.
+2. **Phase B — Unpack/repack** the `SoftwareUpdateInstaller` container once format is documented.
 3. **Phase C — Deliver** via USB (`bose-usb-prep.sh --firmware`) or OTA (`swUpdateUrl` + local update server).
 
 ## Safety

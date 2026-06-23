@@ -24,7 +24,7 @@ Firmware 27.x **removed** the TAP command `remote_services on` (port 17000). Wav
 
 ## `Update.stu` container — SOLVED
 
-The container is fully reverse-engineered. See `docs/STU-FORMAT.md` for the
+The container format is fully documented. See `docs/STU-FORMAT.md` for the
 field-level spec. Summary:
 
 - 20-byte outer header: `BOSE` magic, total file size at 0x08, descriptor
@@ -191,7 +191,7 @@ python3 scripts/patch-research.py work/Update.stu   # legacy hexdump helper
 `scripts/stu_container.py` holds the shared container parser used by both
 extract and repack.
 
-## Next RE tasks
+## Next steps
 
 1. Run `rebuild-ubi.sh` in a Linux container to produce the patched `ubi.img`,
    then `repack-stu.py` → `Update-ssh.stu`; confirm all CRCs.
