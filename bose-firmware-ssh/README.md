@@ -194,23 +194,38 @@ The USB firmware port is on the **pedestal** (bottom unit), labelled
 #### Step 5 — Verify SSH
 
 After the pedestal reboots, SSH should come up automatically (no USB stick
-or extra steps needed — the patched firmware enables it unconditionally):
+or extra steps needed — the patched firmware enables it unconditionally).
+
+Find the device IP from your router's DHCP client list. If you already have a
+candidate IP (e.g. from BosMan or a prior `8090` check), confirm it with:
 
 ```sh
-# Connect using the key you passed to build-ssh
-ssh root@<device-ip>
-
-# Confirm the gate is patched
-remote_services_enabled && echo "SSH gate: enabled"
-
-# Make SSH permanent in NV storage (survives firmware re-flash if you ever
-# reflash the same patched .stu again)
-touch /mnt/nv/remote_services
+curl -s http://192.168.0.119:8090/info | grep -o 'ipAddress>[^<]*' | head -1
+# Expected: ipAddress>192.168.0.119
 ```
 
-Find the device IP from your router's DHCP list or:
+Connect using the key you passed to `build-ssh`. Modern OpenSSH clients disable
+legacy key types by default — use these flags for the device's dropbear SSH
+server:
+
 ```sh
-curl -s http://<device-ip>:8090/info | grep -o 'ip>[^<]*' | head -1
+ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root 192.168.0.119
+```
+
+Or add to `~/.ssh/config` to avoid repeating the flags:
+
+```
+Host 192.168.0.119
+    HostKeyAlgorithms ssh-rsa
+    PubkeyAcceptedAlgorithms ssh-rsa
+```
+
+On the speaker, confirm the gate is patched and make SSH persistent in NV storage
+(survives firmware re-flash if you ever reflash the same patched `.stu` again):
+
+```sh
+remote_services_enabled && echo "SSH gate: enabled"
+touch /mnt/nv/remote_services
 ```
 
 > **Connection refused?** The patched firmware starts sshd on first boot

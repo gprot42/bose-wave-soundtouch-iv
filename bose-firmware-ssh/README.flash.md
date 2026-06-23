@@ -163,7 +163,7 @@ For the SSH enable pass, **both** are used at once:
 4. Power off → insert the SSH stick into **Setup B** → power on → wait ~90 s.
 5. On your Mac, stay on the **home LAN**. Check your router's DHCP client list for a
    new **Ethernet** lease (not the Bose SSID).
-6. `ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<speaker-ip>`
+6. `ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root <speaker-ip>`
 7. `touch /mnt/nv/remote_services`, remove the USB stick, power-cycle.
 
 The network port is **not** where the USB stick goes. Firmware flash and SSH USB
@@ -247,9 +247,10 @@ Re-prepare with the prep script (sets MBR boot flag for SSH sticks):
 3. Power off → insert SSH-only USB in **Setup B** → power on → wait ~90 s.
 4. Stay on your **home WiFi/Ethernet** network on the Mac — do **not** join the Bose SSID.
 5. Find the speaker in your router DHCP list (often a second lease on Ethernet).
-6. `ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<speaker-ip>`
+6. `ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root <speaker-ip>`
 
 Modern OpenSSH disables `ssh-rsa`; add those options if you get algorithm errors.
+Example: `ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root 192.168.0.119`
 
 **If port 22 still refuses on the home/Ethernet IP**
 
@@ -467,11 +468,12 @@ Then on the pedestal (speaker must already be on home WiFi):
 6. SSH in — no password required:
 
 ```sh
-ssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<speaker-ip>
+ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root <speaker-ip>
+# Example: ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root 192.168.0.119
 ```
 
-Use `root@` — `ssh <ip>` alone tries your Mac username and will fail even when
-SSH is running.
+Use `-l root` (or `root@`) — `ssh <ip>` alone tries your Mac username and will
+fail even when SSH is running.
 
 Find the speaker's IP from your router's DHCP list (Ethernet is more reliable than
 WiFi for this boot on Wave IV) or:
@@ -479,7 +481,7 @@ WiFi for this boot on Wave IV) or:
 ```sh
 # Once BosMan found it on port 8090, the IP is shown in the app
 # Or check your router, or:
-curl -s http://<speaker-ip>:8090/info | grep -o 'ip>[^<]*' | head -1
+curl -s http://<speaker-ip>:8090/info | grep -o 'ipAddress>[^<]*' | head -1
 ```
 
 #### 2. Extract speaker data
