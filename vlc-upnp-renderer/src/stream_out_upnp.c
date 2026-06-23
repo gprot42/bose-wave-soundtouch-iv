@@ -18,6 +18,7 @@
 
 #include "../include/upnp_cast.h"
 #include "../include/upnp_common.h"
+#include "../include/upnp_display.h"
 #include "../include/upnp_soap.h"
 
 #include <inttypes.h>
@@ -200,6 +201,8 @@ typedef struct upnp_demux_sys
     bool pending_default_volume;
     int last_volume;
     bool last_mute;
+    char display_title[256];
+    vlc_tick_t last_display_push;
     vlc_tick_t cast_start;
     vlc_tick_t play_confirmed_at;
     vlc_tick_t length;
@@ -236,6 +239,10 @@ static bool is_ended_state(const char *state)
 
 static input_thread_t *get_filter_input(demux_t *demux);
 static const char *get_source_uri(demux_t *demux);
+static void resolve_display_title(demux_t *demux, upnp_demux_sys_t *sys,
+                                  const char *source);
+static void push_display_title(demux_t *demux, upnp_demux_sys_t *sys);
+static void maybe_refresh_display(demux_t *demux, upnp_demux_sys_t *sys);
 
 static void cache_filter_input(demux_t *demux, upnp_demux_sys_t *sys)
 {
@@ -367,6 +374,59 @@ static void update_position_from_renderer(upnp_demux_sys_t *sys)
     if (sys->length <= 0 && dur[0] != '\0' && strcmp(dur, "0:00:00") != 0
      && upnp_parse_hms_duration(dur, &ticks) == 0 && ticks > 0)
         sys->length = ticks;
+}
+
+static void resolve_display_title(demux_t *demux, upnp_demux_sys_t *sys,
+                                  const char *source)
+{
+    const char *title = NULL;
+
+    cache_filter_input(demux, sys);
+    if (sys->input != NULL)
+    {
+        input_item_t *item = input_GetItem(sys->input);
+        if (item != NULL)
+        {
+            title = input_item_GetTitle(item);
+            if (title == NULL || title[0] == '\0')
+                title = input_item_GetName(item);
+        }
+    }
+
+    if (title != NULL && title[0] != '\0')
+    {
+        strncpy(sys->display_title, title, sizeof(sys->display_title) - 1);
+        sys->display_title[sizeof(sys->display_title) - 1] = '\0';
+        return;
+    }
+
+    upnp_display_title_from_source(source, sys->display_title,
+                                   sizeof(sys->display_title));
+}
+
+static void push_display_title(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    const char *host = sys->session->device.host;
+
+    if (host == NULL || sys->display_title[0] == '\0')
+        return;
+
+    if (upnp_display_push_title(host, sys->display_title) == 0)
+        msg_Info(demux, "Display: %s", sys->display_title);
+    else
+        msg_Dbg(demux, "Display update skipped for %s", host);
+
+    sys->last_display_push = mdate();
+}
+
+static void maybe_refresh_display(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    if (!sys->track_active || sys->display_title[0] == '\0')
+        return;
+
+    if (sys->last_display_push <= 0
+     || mdate() - sys->last_display_push >= UPNP_DISPLAY_INTERVAL_US)
+        push_display_title(demux, sys);
 }
 
 static const char *get_source_uri(demux_t *demux)
@@ -710,8 +770,12 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
     sys->length = 0;
     sys->stop_sent = false;
     sys->ui_length_set = false;
+    sys->last_display_push = 0;
     probe_length_from_next(demux, sys);
     probe_length_from_uri(source, sys);
+
+    resolve_display_title(demux, sys, source);
+    push_display_title(demux, sys);
 
     sys->pending_default_volume = true;
     apply_default_cast_volume(sys);
@@ -738,6 +802,8 @@ static void reset_track_state(upnp_demux_sys_t *sys)
     sys->time = 0;
     sys->length = 0;
     sys->ui_length_set = false;
+    sys->display_title[0] = '\0';
+    sys->last_display_push = 0;
 }
 
 static int poll_renderer_playback(demux_t *demux, upnp_demux_sys_t *sys)
@@ -777,6 +843,7 @@ static int poll_renderer_playback(demux_t *demux, upnp_demux_sys_t *sys)
 
     if (sys->track_active)
     {
+        maybe_refresh_display(demux, sys);
         update_position_from_renderer(sys);
         push_playback_times(demux, sys);
     }

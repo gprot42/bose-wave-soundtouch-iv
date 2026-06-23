@@ -80,6 +80,7 @@ endif()
 add_vlc_plugin(upnp_cast
     src/stream_out_upnp.c
     src/upnp_cast.c
+    src/upnp_display.c
     ${UPNP_COMMON_SOURCES}
 )
 target_compile_definitions(upnp_cast PRIVATE MODULE_STRING=\"upnp_cast\")
@@ -109,6 +110,10 @@ if(BUILD_TESTS)
     add_executable(test_volume tests/test_volume.c src/upnp_cast.c ${UPNP_COMMON_SOURCES})
     target_include_directories(test_volume PRIVATE ${CMAKE_SOURCE_DIR}/include)
     add_test(NAME volume_map COMMAND test_volume)
+
+    add_executable(test_display tests/test_display.c src/upnp_display.c)
+    target_include_directories(test_display PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    add_test(NAME display_title COMMAND test_display)
 endif()
 
 message(STATUS "VLC_DIR:         ${VLC_DIR}")

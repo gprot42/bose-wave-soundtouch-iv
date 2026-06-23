@@ -71,6 +71,17 @@ Only this project's plugins are removed (`libupnp_renderer_plugin`, `libupnp_cas
 
 **HTTP streams** — the URL is passed through unchanged.
 
+### Supported formats on Bose SoundTouch IV
+
+The plugin serves whatever file you open in VLC; the **Bose pedestal** decides whether
+it can decode it. On a **Wave SoundTouch IV**, MP3, AAC/M4A, WMA, and WAV work reliably.
+**FLAC does not** — casting can appear to start but you get no audio. Newer standalone
+SoundTouch models (10/20/30, etc.) reportedly support FLAC; this has not been verified
+on every unit here.
+
+If you need lossless sources on a Wave IV, transcode to MP3/AAC first or stream through
+a DLNA server that transcodes (UMS, Serviio, Plex).
+
 ## Manual build
 
 If you prefer CMake directly:
@@ -136,7 +147,7 @@ Shared C library code (no libupnp): SSDP, device XML parse, SOAP client, local H
 | Bose not in Renderer menu | Same Wi-Fi subnet; Bose powered on; wait ~5 s for SSDP scan. Compare with `python3 dlna-sender/send-to-bose.py --status`. |
 | Plugin not loading | Matching VLC minor version (3.0.23); both plugin files installed; check verbose log: `VLC_PLUGIN_PATH=~/.local/vlc/plugins vlc -vvv 2>&1 \| rg -i 'upnp\|renderer'` |
 | Cannot write into VLC.app | Re-run `./install.sh` (auto-fallback to `~/.local/vlc/plugins`) or use `./open-vlc.sh`. |
-| Cast starts but no audio | Confirm Bose plays the URL via `send-to-bose.py`. Check firewall allows inbound HTTP for local file serving. |
+| Cast starts but no audio | On **Wave SoundTouch IV**, check the file format first — **FLAC, OGG, and Opus will not play** even though the cast succeeds. Try an MP3. Then confirm Bose plays the URL via `send-to-bose.py`. Check firewall allows inbound HTTP for local file serving. |
 
 ## Fallback
 

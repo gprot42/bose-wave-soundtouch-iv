@@ -57,6 +57,32 @@ If BosMan won't connect, **the speaker is almost always not actually in setup mo
 3. **In BosMan, use the WiFi Setup panel** — **not** "Search devices" / "Connect by IP". Search looks for port 8090, which a speaker in setup mode does not run yet. Pick your home WiFi, enter the password, submit.
 4. **Still stuck?** Reset the pedestal (soft restart, then hard reset). See the WiFi guide's [factory reset section](../README.SoundTouchIV-wifi.md#factory-reset--setup-recovery-wave-soundtouch-series-iv).
 
+If resets don't help, the pedestal firmware may be stuck (common after the [Bose cloud shutdown in May 2026](../README.SoundTouchIV-wifi.md#root-cause-2026-bose-cloud-shutdown--stuck-setup-firmware)). BosMan cannot fix that — you need an [offline USB firmware reflash](../bose-usb-flash/README.flash.md) before provisioning will work.
+
+### Configure Android / GrapheneOS for Bose setup WiFi
+
+Bose setup WiFi has no internet; Android often disconnects after a few seconds. Before opening BosMan, configure the phone (see the WiFi guide [Part 2](../README.SoundTouchIV-wifi.md#part-2--configure-your-phone-grapheneos--android)):
+
+- Turn off mobile data
+- Connect to the Bose SSID and tap **Stay connected**
+- Use **device MAC** (not randomized MAC) for the Bose network
+- Turn off Android **Block connections without VPN** if you use a VPN
+
+With USB debugging enabled, run from the repo root:
+
+```bash
+chmod +x bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh
+./bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh
+```
+
+Or for a different SSID:
+
+```bash
+BOSE_SSID="Bose SoundTouch Setup" ./bosman-soundtouch-iv-controller/scripts/configure-grapheneos-bose-wifi.sh
+```
+
+The script disables connectivity-check disconnects, turns off mobile data temporarily, connects with device MAC, and opens WiFi settings so you can tap **Stay connected**. You still need that one tap on the phone when Android warns about no internet.
+
 ### What BosMan implements
 
 BosMan speaks the Wave IV **Gabbo / SM1 HTTP-form** setup protocol (not the SoundTouch 10 telnet CLI or SM2 WebSocket path):
@@ -91,10 +117,22 @@ On the setup AP, BosMan talks HTTP to the Gabbo server (port 80) and does **not*
 
 Approve the system dialog if Android asks whether BosMan may use the Bose WiFi network (`WifiNetworkSpecifier` holds the local link).
 
+> **Browser alternative:** iOS/Android often block the setup page at `http://192.0.2.1` on no-internet networks. A Mac browser on the Bose SSID works reliably (see the WiFi guide [field-confirmed procedure](../README.SoundTouchIV-wifi.md#field-confirmed-setup-procedure-june-2026)). On Android, use BosMan's WiFi Setup panel instead.
+
+### Everyday use on home WiFi
+
+You do not need to stay on the speaker's setup SSID for normal control:
+
+1. Provision the speaker once (BosMan WiFi Setup panel or a Mac browser).
+2. Connect the phone to the **same home WiFi**.
+3. Tap **Search devices** — BosMan discovers the speaker via SSDP/network scan on port **8090**.
+
 ### What BosMan needs
 
 - **HTTP** on port **8090** — commands, volume, presets, device info
 - **WebSocket** on port **8080** — live updates (now playing, volume)
+
+BosMan talks to the speaker over your local network and needs none of Bose's cloud — but the speaker must first join your home WiFi (setup server on port 80 must work at least once).
 
 Reachable via the speaker's setup SSID (provisioning) or home WiFi (everyday control).
 
@@ -104,8 +142,11 @@ Reachable via the speaker's setup SSID (provisioning) or home WiFi (everyday con
 |--------|------------|
 | "Search devices" finds nothing during setup | Use the **WiFi Setup panel**, not Search |
 | `No SoundTouch device at 192.168.0.1` | BosMan auto-probes gateways; try **Connect by IP** with `192.168.1.1` or `192.0.2.1` |
+| Setup page won't load on phone | iOS/Android block no-internet networks — use BosMan WiFi Setup panel or a Mac browser |
+| WiFi drops after ~5 seconds | Tap **Stay connected**, run `scripts/configure-grapheneos-bose-wifi.sh`, use device MAC |
 | BosMan works on PC but not phone | Use latest APK (`CapacitorHttp` + WiFi retention) |
 | Browser / BosMan shows *"Your internet access is blocked"* | Turn off Android **Block connections without VPN** (Settings → VPN → gear) |
+| Speaker won't enter setup mode / every TCP port refused | Pedestal firmware likely stuck — [USB reflash](../bose-usb-flash/README.flash.md), not an app fix |
 
 ### Android debugging (CDP)
 
@@ -128,7 +169,7 @@ await window.Capacitor.Plugins.WifiInfo.tcpPortScan({ host: '192.0.2.1', ports: 
 
 **Bosman is an independent software solution and is not affiliated with Bose Corporation.**
 
-"Bose", "SoundTouch", and the associated logos are registered trademarks of Bose Corporation. This project uses the unofficial SoundTouch Webservices API v1.1.0 to communicate with the devices. Use at your own risk. Kambrium Software GmbH assumes no liability for any damage or malfunctions to your devices.
+"Bose", "SoundTouch", and the associated logos are registered trademarks of Bose Corporation. This project uses the unofficial SoundTouch Webservices API v1.1.0 to communicate with the devices. See [doc/Bose_SoundTouch_API_v1.1.0.md](doc/Bose_SoundTouch_API_v1.1.0.md) for API details. Use at your own risk. Kambrium Software GmbH assumes no liability for any damage or malfunctions to your devices.
 
 ## 📄 License
 

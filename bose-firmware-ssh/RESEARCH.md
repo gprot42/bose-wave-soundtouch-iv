@@ -249,6 +249,14 @@ no version games.** Tooling: `scripts/enable-ssh-usb.sh`. For permanence,
 `./scripts/persist-ssh.sh <device-ip>` (or `touch /mnt/nv/remote_services` +
 `/etc/remote_services` from the resulting shell).
 
+## Display custom messages
+
+No public `:8090` endpoint for arbitrary front-panel text on Wave IV. The console
+is driven over ABL (`ABLServer` → `/dev/abl0`). See
+[`docs/DISPLAY-RESEARCH.md`](docs/DISPLAY-RESEARCH.md) for architecture and the
+next RE steps (`DisplayLisaStatusMsg`, `DisplayNotificationMsg`, protobuf
+descriptor recovery).
+
 ## Deliverables checklist
 
 - [x] Fork folder `bose-firmware-ssh/`
