@@ -94,6 +94,135 @@ use plain `http://` on your LAN (no TLS cert needed).
 > `scripts/enable-ssh-usb.sh` -- is still the simplest path.)
 
 
+### D. Flash the patched firmware via USB stick (recommended install path)
+
+USB flash **bypasses the version check** that blocks OTA — the pedestal
+installs whatever `Update.stu` it finds on the stick regardless of version.
+This is the primary way to deliver `work/Update-ssh.stu` to the device.
+
+#### Requirements
+
+- USB-A stick, **32 GB or smaller**
+- Partition table: **MBR** (GPT will not work)
+- Filesystem: **FAT32** (not exFAT, not NTFS)
+- Exactly **one file at the USB root**, named `Update.stu` (the pedestal
+  looks for this exact name — rename your patched file)
+
+#### Step 1 — Prepare the USB stick
+
+**Automated (recommended):**
+```sh
+# Format + clean a FAT32/MBR stick in one command (replace diskN):
+diskutil eraseDisk FAT32 BOSEFLASH MBRFormat /dev/diskN
+```
+Or use the parent project's helper which handles format + junk removal:
+```sh
+../bose-usb-prep.sh --dry-run    # preview
+../bose-usb-prep.sh              # formats and preps the stick
+```
+
+#### Step 2 — Copy the patched firmware
+
+The pedestal requires the file to be named exactly **`Update.stu`**:
+
+```sh
+# Mount point may differ — check `diskutil list` for yours
+cp work/Update-ssh.stu /Volumes/BOSEFLASH/Update.stu
+```
+
+#### Step 3 — Remove macOS junk files (critical)
+
+macOS silently creates hidden files that prevent the pedestal from reading
+the firmware. Remove them **after** copying:
+
+```sh
+mdutil -i off /Volumes/BOSEFLASH
+rm -rf /Volumes/BOSEFLASH/.fseventsd /Volumes/BOSEFLASH/.Spotlight-V100
+rm -f  /Volumes/BOSEFLASH/._* /Volumes/BOSEFLASH/.DS_Store
+```
+
+Verify the stick contains exactly one file:
+
+```sh
+ls -la /Volumes/BOSEFLASH/
+# Expected:  Update.stu   (only visible file)
+```
+
+Then eject cleanly:
+```sh
+diskutil eject /dev/diskN
+```
+
+#### Step 4 — Flash the pedestal
+
+The USB firmware port is on the **pedestal** (bottom unit), labelled
+**SETUP / SETUP B / SERVICE** — not the network (RJ45) port.
+
+**Method A — auto-flash (try first):**
+1. Leave the system **powered on**.
+2. Insert the USB stick into the pedestal's **SETUP / SETUP B / SERVICE** jack.
+3. The WiFi LED blinks white while reading. The pedestal **reboots on its
+   own** (~30 s – 5 min) when done — that is the success signal.
+4. Do not press any buttons on the console.
+
+**Method B — Control button (if Method A does nothing after 2 min):**
+1. Unplug the AC power cord.
+2. Insert the USB stick into **SETUP / SETUP B / SERVICE**.
+3. Hold the **Control button** on the back of the pedestal.
+4. Reconnect AC power while still holding — hold ~5 s then release.
+5. Wait up to 5 minutes for the automatic reboot.
+
+**LED signals:**
+
+| LED / display | Meaning |
+|---------------|---------|
+| WiFi LED blinks white | Reading/flashing USB (good) |
+| Progress bar or "UPDATE" on display | Flash in progress |
+| Pedestal reboots | Flash complete — remove USB |
+| `SOUNDTOUCH NOT CONFIGURED`, no reboot | Stick not read — wrong jack, FAT32/MBR issue, or junk files; try another USB 2.0 drive |
+| 3× white blink then amber | USB read but firmware rejected |
+
+#### Step 5 — Verify SSH
+
+After the pedestal reboots, SSH should come up automatically (no USB stick
+or extra steps needed — the patched firmware enables it unconditionally):
+
+```sh
+# Connect using the key you passed to build-ssh
+ssh root@<device-ip>
+
+# Confirm the gate is patched
+remote_services_enabled && echo "SSH gate: enabled"
+
+# Make SSH permanent in NV storage (survives firmware re-flash if you ever
+# reflash the same patched .stu again)
+touch /mnt/nv/remote_services
+```
+
+Find the device IP from your router's DHCP list or:
+```sh
+curl -s http://<device-ip>:8090/info | grep -o 'ip>[^<]*' | head -1
+```
+
+> **Connection refused?** The patched firmware starts sshd on first boot
+> after flashing. If port 22 is still closed, the flash may not have applied
+> (device saw no reboot / used an old cached image). Re-run Method B and
+> watch for the white LED blink.
+
+#### Step 6 — Rollback (if needed)
+
+Flash stock firmware to revert all changes:
+```sh
+cp work/Update.stu /Volumes/BOSEFLASH/Update.stu   # use the original stock file
+# remove junk files (Step 3), then re-flash (Step 4)
+```
+
+Stock MD5 for 27.00.06: `88c63e440cafa969ff19fb98b39be24a`
+
+> Full USB flash procedure (stock firmware, Wave IV quirks, SSH enable
+> separately): see [`README.flash.md`](README.flash.md).
+
+
 ## Layout
 
 | Path | Purpose |
