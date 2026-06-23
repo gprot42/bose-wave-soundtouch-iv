@@ -34,14 +34,12 @@
 #   ./scripts/enable-ssh-usb.sh --marker-only /Volumes/NAME
 #                                               # just drop the marker on an
 #                                               # already-mounted FAT volume
-#   ./scripts/enable-ssh-usb.sh --persist-cmds  # print the commands to run from
-#                                               # the resulting shell for a
-#                                               # permanent (NV) enable
+#   ./scripts/enable-ssh-usb.sh --persist-cmds  # print on-speaker persist commands
+#   ./scripts/persist-ssh.sh <device-ip>        # apply persistence over SSH
 #
 # After insertion:
-#   ssh root@<device-ip>        # or: telnet <device-ip>   (port 23)
-#   # then, for permanence across reboots/updates:
-#   touch /mnt/nv/remote_services
+#   ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root <device-ip>
+#   ./scripts/persist-ssh.sh <device-ip>   # required — survives reboots
 #
 # macOS only (uses diskutil).  Formatting a disk is DESTRUCTIVE -- you will be
 # asked to confirm and to type the disk identifier.
@@ -55,18 +53,19 @@ note() { printf '[enable-ssh-usb] %s\n' "$*"; }
 err()  { printf '[enable-ssh-usb] ERROR: %s\n' "$*" >&2; }
 
 persist_cmds() {
+  local here
+  here="$(cd "$(dirname "$0")" && pwd)"
+  note "Run after first SSH login (or from repo root: ./scripts/persist-ssh.sh <device-ip>):"
+  "$here/persist-ssh.sh" --cmds 2>/dev/null || on_device_cmds_fallback
+}
+
+on_device_cmds_fallback() {
   cat <<'EOF'
-# Run these from the telnet (port 23) or ssh (port 22) shell once you are in,
-# to make SSH come up automatically on EVERY boot (survives reboots & updates):
-
-    touch /mnt/nv/remote_services
-    /etc/init.d/sshd start          # (already running this boot via USB)
-
-# To confirm the gate now passes:
-    remote_services_enabled && echo "remote services ENABLED" || echo "still gated"
-
-# To undo permanence later:
-    rm -f /mnt/nv/remote_services
+touch /mnt/nv/remote_services
+mount -n -o remount,rw /
+touch /etc/remote_services
+/etc/init.d/sshd restart
+remote_services_enabled && echo "SSH gate: enabled" || echo "SSH gate: disabled"
 EOF
 }
 

@@ -246,7 +246,8 @@ fi
 **Therefore: a USB stick with an empty file named `remote_services` at its
 root brings up sshd (22) + telnetd (23) immediately — no flash, no reboot,
 no version games.** Tooling: `scripts/enable-ssh-usb.sh`. For permanence,
-`touch /mnt/nv/remote_services` from the resulting shell.
+`./scripts/persist-ssh.sh <device-ip>` (or `touch /mnt/nv/remote_services` +
+`/etc/remote_services` from the resulting shell).
 
 ## Deliverables checklist
 
@@ -263,3 +264,5 @@ no version games.** Tooling: `scripts/enable-ssh-usb.sh`. For permanence,
 - [x] OTA enable-SSH path proven IMPOSSIBLE on this FW (see section above)
 - [x] USB `remote_services` enable tooling (`scripts/enable-ssh-usb.sh`) — the
       reliable, no-flash way to get SSH
+- [x] Live persist tooling (`scripts/persist-ssh.sh`) — writes NV/rootfs markers
+      so sshd survives reboots

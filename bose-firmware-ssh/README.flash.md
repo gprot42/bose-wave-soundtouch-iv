@@ -118,7 +118,7 @@ boot-time behaviors:
 | **Power state** | Powered on, or power-cycle + Control button | **Power off** → insert USB → power on |
 | **USB port** | SETUP / SETUP B / SERVICE jack | **Setup B** (USB-A on pedestal back) |
 | **Success signal** | Pedestal reboots on its own | `ssh root@<ip>` connects (port 22 open) |
-| **After** | Remove USB, enter setup mode | `touch /mnt/nv/remote_services` to persist |
+| **After** | Remove USB, enter setup mode | `./scripts/persist-ssh.sh <ip>` to persist sshd |
 
 **Common mistake:** run `--both`, flash firmware, remove the USB, join home WiFi,
 then try `ssh` — and get `Connection refused`. The flash path processed
@@ -133,7 +133,7 @@ SSH power-cycle pass.
 4. **Plug Ethernet** from the pedestal **network port** to your router (see below).
 5. Power off → insert SSH stick into **Setup B** → power on → wait ~90 s.
 6. From your Mac on the **home LAN** (not the Bose setup SSID): `ssh root@<speaker-ip>`
-   then `touch /mnt/nv/remote_services`. Use the router's Ethernet DHCP lease.
+   then `./scripts/persist-ssh.sh <speaker-ip>`. Use the router's Ethernet DHCP lease.
 
 Use `--ssh` for step 3, not the original `--both` stick. If `Update.stu` is still
 on the stick, re-inserting it may trigger another firmware update instead of SSH.
@@ -164,7 +164,8 @@ For the SSH enable pass, **both** are used at once:
 5. On your Mac, stay on the **home LAN**. Check your router's DHCP client list for a
    new **Ethernet** lease (not the Bose SSID).
 6. `ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root <speaker-ip>`
-7. `touch /mnt/nv/remote_services`, remove the USB stick, power-cycle.
+7. `./scripts/persist-ssh.sh <speaker-ip>` — **required**; survives reboots (see below)
+8. Remove the USB stick, power-cycle.
 
 The network port is **not** where the USB stick goes. Firmware flash and SSH USB
 both use **Setup B** only; Ethernet is an extra cable for SSH so you can reach
@@ -192,14 +193,16 @@ fell back to setup mode. The setup AP does hand out leases (`192.0.2.x` or
 3. Power off → insert the SSH-only USB into **Setup B** → power on → wait ~60 s.
 4. Find the speaker's IP in your router's DHCP list (often under the Ethernet
    interface).
-5. `ssh root@<speaker-ip>` then `touch /mnt/nv/remote_services`.
-6. **Remove the USB stick** and power-cycle normally (no USB inserted).
-7. WiFi should come back on its own. If it does not, do the BosMan setup pass once
+5. `ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root <speaker-ip>`
+6. `./scripts/persist-ssh.sh <speaker-ip>` (or the on-speaker commands in [Make SSH persistent](#4-make-ssh-persistent-required))
+7. **Remove the USB stick** and power-cycle normally (no USB inserted).
+8. WiFi should come back on its own. If it does not, do the BosMan setup pass once
    more — that should be the last time.
 
-**After SSH works:** always run `touch /mnt/nv/remote_services` on the speaker and
-remove the USB. That persists SSH in internal storage so future reboots do not need
-another USB pass — and WiFi is more likely to survive the next boot.
+**After SSH works:** always run `./scripts/persist-ssh.sh <speaker-ip>` and remove
+the USB. That writes `/mnt/nv/remote_services` (and `/etc/remote_services`) so
+sshd starts on every boot without another USB pass — and WiFi is more likely to
+survive the next power cycle.
 
 ### SSH connection refused (Wave IV)
 
@@ -520,16 +523,29 @@ Change all four server URLs to your SoundCork instance:
 Reboot the speaker. TuneIn presets and streaming resume through your
 SoundCork server.
 
-#### 4. Make SSH persistent (optional but recommended)
+#### 4. Make SSH persistent (required)
+
+USB `remote_services` only enables sshd for the **current boot**. After your
+first SSH login, run this from your Mac (repo root):
 
 ```sh
-ssh root@<speaker-ip>
-touch /mnt/nv/remote_services
+./scripts/persist-ssh.sh <speaker-ip>
+# Example: ./scripts/persist-ssh.sh 192.168.0.119
 ```
 
-This keeps SSH accessible across reboots so you can manage SoundCork
-config without re-inserting the USB each time. **Remove the USB stick** after
-running this — leaving it inserted can cause odd boots on the next power cycle.
+Or run on the speaker:
+
+```sh
+touch /mnt/nv/remote_services
+mount -n -o remount,rw /
+touch /etc/remote_services
+/etc/init.d/sshd restart
+remote_services_enabled && echo "SSH gate: enabled"
+```
+
+This keeps sshd on port 22 across reboots so you can manage SoundCork without
+re-inserting the USB each time. **Remove the USB stick** after this succeeds —
+leaving it inserted can cause odd boots on the next power cycle.
 
 ---
 
@@ -546,7 +562,7 @@ running this — leaving it inserted can cause odd boots on the next power cycle
 | SSH needed | Port 8090 works, port 22 refused | `./bose-usb-prep.sh --ssh`, **plug Ethernet**, power-cycle with stick in Setup B |
 | SSH boot, no home IP | `Bose Wave ST` AP back, router shows no DHCP lease | Not a router problem — use Ethernet for SSH pass; see [SSH boot drops WiFi](#ssh-boot-drops-wifi-wave-iv) |
 | SSH on setup AP | `ssh root@192.0.2.1` → `Connection refused` | Wrong test — SSH is not on the setup AP; use Ethernet + home LAN IP; see [SSH connection refused](#ssh-connection-refused-wave-iv) |
-| SSH enabled | `ssh root@<ip>` connects | `touch /mnt/nv/remote_services`, **remove USB**, then SoundCork setup |
+| SSH enabled | `ssh root@<ip>` connects | `./scripts/persist-ssh.sh <ip>`, **remove USB**, then SoundCork setup |
 | Cloud dead | Presets / TuneIn broken | Set up SoundCork |
 | SoundCork running | Presets resolve, streaming works | Done |
 | **Wrong — USB ignored** | `SOUNDTOUCH NOT CONFIGURED`, no reboot | Check SETUP jack/adapter, FAT32, junk files, try another drive; do NOT use console buttons |

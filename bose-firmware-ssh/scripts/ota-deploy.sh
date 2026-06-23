@@ -439,5 +439,6 @@ info "Done."
 if [[ $UPDATED -eq 1 ]]; then
     echo ""
     echo "  Firmware applied successfully."
-    echo "  Verify SSH: ssh root@$DEVICE_IP"
+    echo "  Verify SSH: ssh -o HostKeyAlgorithms=ssh-rsa -o PubkeyAcceptedAlgorithms=ssh-rsa -l root $DEVICE_IP"
+    echo "  Persist SSH: ./scripts/persist-ssh.sh $DEVICE_IP"
 fi

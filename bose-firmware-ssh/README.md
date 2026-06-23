@@ -220,13 +220,24 @@ Host 192.168.0.119
     PubkeyAcceptedAlgorithms ssh-rsa
 ```
 
-On the speaker, confirm the gate is patched and make SSH persistent in NV storage
-(survives firmware re-flash if you ever reflash the same patched `.stu` again):
+**Make sshd persistent** (required even after patched firmware — survives reboots
+and stock-firmware rollback). From your Mac:
 
 ```sh
-remote_services_enabled && echo "SSH gate: enabled"
-touch /mnt/nv/remote_services
+./scripts/persist-ssh.sh 192.168.0.119
 ```
+
+Or run on the speaker after SSH login:
+
+```sh
+touch /mnt/nv/remote_services
+mount -n -o remount,rw /
+touch /etc/remote_services
+/etc/init.d/sshd restart
+remote_services_enabled && echo "SSH gate: enabled"
+```
+
+Remove any `remote_services` USB stick from Setup B once this succeeds.
 
 > **Connection refused?** The patched firmware starts sshd on first boot
 > after flashing. If port 22 is still closed, the flash may not have applied
@@ -260,6 +271,7 @@ Stock MD5 for 27.00.06: `88c63e440cafa969ff19fb98b39be24a`
 | [`scripts/stu-toolbox.sh`](scripts/stu-toolbox.sh) | colima/Docker loop: unpack / patch / build-ssh / rebuild |
 | [`scripts/patch-rootfs.sh`](scripts/patch-rootfs.sh) | In-container rootfs patcher: SSH enable+auth, swUpdateUrl |
 | [`scripts/enable-ssh-usb.sh`](scripts/enable-ssh-usb.sh) | Prep a USB `remote_services` stick (no-flash SSH enable) |
+| [`scripts/persist-ssh.sh`](scripts/persist-ssh.sh) | Apply `/mnt/nv/remote_services` over SSH (persistent sshd) |
 | [`scripts/ota-update-server.py`](scripts/ota-update-server.py) | Local update server (index.xml + .stu) |
 | [`scripts/ota-deploy.sh`](scripts/ota-deploy.sh) | OTA push helper (see its blocker banner) |
 | [`scripts/rebuild-ubi.sh`](scripts/rebuild-ubi.sh) | `mkfs.ubifs`/`ubinize` wrapper (runs in container) |
