@@ -219,7 +219,6 @@ typedef struct upnp_demux_sys
 #define CAST_EOF_MARGIN   (1 * CLOCK_FREQ)
 #define CAST_MIN_PLAY     (5 * CLOCK_FREQ)
 #define CAST_WAIT_DELAY   (CLOCK_FREQ / 10)
-#define CAST_SEEK_SETTLE_US 50000
 #define CAST_SEEK_PENDING   (3 * CLOCK_FREQ)
 #define CAST_SEEK_TOLERANCE (2 * CLOCK_FREQ)
 
@@ -429,6 +428,33 @@ static void ensure_cast_length(demux_t *demux, upnp_demux_sys_t *sys)
     }
 }
 
+static void resume_renderer_after_seek(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    const char *av_control = sys->session->device.av_control;
+
+    if (av_control == NULL)
+        return;
+
+    char state[64];
+    if (upnp_av_get_transport_state(av_control, state, sizeof(state)) != 0)
+        return;
+
+    if (strcmp(state, "PLAYING") == 0)
+    {
+        sys->renderer_paused = false;
+        return;
+    }
+
+    if (upnp_av_play(av_control) == 0)
+    {
+        sys->renderer_paused = false;
+        sys->seen_playing = true;
+        msg_Dbg(demux, "UPnP resumed playback after seek (was %s)", state);
+    }
+    else
+        msg_Warn(demux, "UPnP Play after seek failed (state=%s)", state);
+}
+
 static int seek_remote_playback(demux_t *demux, upnp_demux_sys_t *sys,
                                 int64_t time)
 {
@@ -446,33 +472,24 @@ static int seek_remote_playback(demux_t *demux, upnp_demux_sys_t *sys,
     if (upnp_format_hms_duration(time, target, sizeof(target)) != 0)
         return VLC_EGENERIC;
 
-    bool resume = !sys->renderer_paused;
-    if (resume && upnp_av_pause(av_control) == 0)
-        sys->renderer_paused = true;
-
-    usleep(CAST_SEEK_SETTLE_US);
-
-    int ret = upnp_av_seek_rel(av_control, target);
-    if (ret == 0 && resume)
-    {
-        usleep(CAST_SEEK_SETTLE_US);
-        if (upnp_av_play(av_control) == 0)
-            sys->renderer_paused = false;
-    }
-
-    if (ret != 0)
-    {
-        msg_Warn(demux, "UPnP Seek to %s failed", target);
-        if (resume && sys->renderer_paused && upnp_av_play(av_control) == 0)
-            sys->renderer_paused = false;
-        return VLC_EGENERIC;
-    }
-
     sys->seek_target = time;
     sys->seek_until = mdate() + CAST_SEEK_PENDING;
     sys->time = time;
-    push_playback_times(demux, sys);
+
+    if (upnp_av_seek_rel(av_control, target) != 0)
+    {
+        msg_Warn(demux, "UPnP Seek to %s failed", target);
+        sys->seek_until = 0;
+        return VLC_EGENERIC;
+    }
+
     msg_Dbg(demux, "UPnP Seek to %s", target);
+
+    /* Bose often enters STOPPED while re-buffering; do not pause before seek. */
+    usleep(UPNP_CAST_SETTLE_US);
+    resume_renderer_after_seek(demux, sys);
+
+    push_playback_times(demux, sys);
     return VLC_SUCCESS;
 }
 
@@ -794,14 +811,18 @@ static bool cast_playback_ended(upnp_demux_sys_t *sys, const char *state)
     if (!sys->renderer_confirmed || !is_ended_state(state))
         return false;
 
+    if (sys->seek_until > 0 && mdate() < sys->seek_until)
+        return false;
+
     if (sys->play_confirmed_at > 0
      && mdate() - sys->play_confirmed_at < CAST_MIN_PLAY)
         return false;
 
-    /* Local file drained + renderer stopped: advance without waiting on position. */
-    if (!sys->local_eof
-     && sys->length > CAST_EOF_MARGIN
-     && sys->time + CAST_EOF_MARGIN < sys->length)
+    if (sys->length <= CAST_EOF_MARGIN)
+        return sys->local_eof;
+
+    /* Renderer stopped but playback has not reached the end yet. */
+    if (!sys->local_eof && sys->time + CAST_EOF_MARGIN < sys->length)
         return false;
 
     return true;
@@ -946,6 +967,10 @@ static int poll_renderer_playback(demux_t *demux, upnp_demux_sys_t *sys)
     if (upnp_av_get_transport_state(sys->session->device.av_control,
                                     state, sizeof(state)) != 0)
         return VLC_DEMUXER_SUCCESS;
+
+    if (sys->seek_until > 0 && mdate() < sys->seek_until
+     && strcmp(state, "PLAYING") != 0)
+        resume_renderer_after_seek(demux, sys);
 
     if (strcmp(state, "PLAYING") == 0)
     {
@@ -1301,13 +1326,7 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
 
             ensure_cast_length(demux, sys);
 
-            int ret = seek_remote_playback(demux, sys, time);
-            if (ret != VLC_SUCCESS)
-                return ret;
-
-            if (next != NULL)
-                demux_Control(next, DEMUX_SET_TIME, time, false);
-            return VLC_SUCCESS;
+            return seek_remote_playback(demux, sys, time);
         }
 
         case DEMUX_SET_POSITION:
@@ -1326,13 +1345,7 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
             pos = VLC_CLIP(pos, 0.0, 1.0);
             int64_t time = (int64_t)(pos * (double)sys->length);
 
-            int ret = seek_remote_playback(demux, sys, time);
-            if (ret != VLC_SUCCESS)
-                return ret;
-
-            if (next != NULL)
-                demux_Control(next, DEMUX_SET_POSITION, pos, false);
-            return VLC_SUCCESS;
+            return seek_remote_playback(demux, sys, time);
         }
 
         default:
