@@ -98,6 +98,99 @@ static int parse_host_port(const char *location, char **host, uint16_t *port)
     return *host != NULL ? 0 : -1;
 }
 
+static int str_case_contains(const char *haystack, const char *needle)
+{
+    if (haystack == NULL || needle == NULL)
+        return 0;
+
+    size_t nlen = strlen(needle);
+    if (nlen == 0)
+        return 1;
+
+    for (const char *p = haystack; *p != '\0'; p++)
+    {
+        size_t i = 0;
+        while (i < nlen &&
+               tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i]))
+            i++;
+        if (i == nlen)
+            return 1;
+    }
+
+    return 0;
+}
+
+static char *bose_suffix_from_serial(const char *serial)
+{
+    if (serial == NULL)
+        return NULL;
+
+    size_t len = strlen(serial);
+    if (len < 6)
+        return NULL;
+
+    const char *tail = serial + len - 6;
+    char *suffix = malloc(7);
+    if (suffix == NULL)
+        return NULL;
+
+    for (int i = 0; i < 6; i++)
+        suffix[i] = (char)toupper((unsigned char)tail[i]);
+    suffix[6] = '\0';
+    return suffix;
+}
+
+static char *bose_suffix_from_udn(const char *udn)
+{
+    if (udn == NULL)
+        return NULL;
+
+    const char *feed = strstr(udn, "BO5EBO5E-F00D-F00D-FEED-");
+    if (feed == NULL)
+        return NULL;
+
+    return bose_suffix_from_serial(feed + strlen("BO5EBO5E-F00D-F00D-FEED-"));
+}
+
+static char *bose_friendly_name(const char *xml, const char *location)
+{
+    char *manufacturer = xml_dup_between(xml, "manufacturer");
+    char *serial = xml_dup_between(xml, "serialNumber");
+    char *udn = xml_dup_between(xml, "UDN");
+
+    int is_bose = (manufacturer != NULL &&
+                   str_case_contains(manufacturer, "Bose")) ||
+                  (location != NULL &&
+                   strstr(location, "BO5EBO5E-F00D-F00D-FEED") != NULL) ||
+                  (udn != NULL &&
+                   strstr(udn, "BO5EBO5E-F00D-F00D-FEED") != NULL);
+
+    char *suffix = NULL;
+    if (is_bose)
+    {
+        suffix = bose_suffix_from_serial(serial);
+        if (suffix == NULL)
+            suffix = bose_suffix_from_udn(udn);
+    }
+
+    free(manufacturer);
+    free(serial);
+    free(udn);
+
+    if (suffix == NULL)
+        return NULL;
+
+    char *name = NULL;
+    if (asprintf(&name, "Bose SoundTouch %s", suffix) < 0)
+    {
+        free(suffix);
+        return NULL;
+    }
+
+    free(suffix);
+    return name;
+}
+
 static char *make_control_url(const char *location, const char *control_path)
 {
     const char *p = strstr(location, "://");
@@ -190,9 +283,17 @@ int upnp_device_parse_xml(const char *xml, size_t xmllen, const char *location,
         return -1;
     }
 
+    char *bose_name = bose_friendly_name(copy, location);
+
     upnp_device_clear(dev);
     dev->location = strdup(location);
-    dev->friendly_name = friendly ? friendly : strdup(location);
+    if (bose_name != NULL)
+    {
+        free(friendly);
+        dev->friendly_name = bose_name;
+    }
+    else
+        dev->friendly_name = friendly ? friendly : strdup(location);
     dev->av_control = make_control_url(location, av_path);
     if (rc_path != NULL)
         dev->rc_control = make_control_url(location, rc_path);

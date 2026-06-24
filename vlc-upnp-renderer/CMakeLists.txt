@@ -102,12 +102,15 @@ if(BUILD_TESTS)
     target_include_directories(test_device_parse PRIVATE ${CMAKE_SOURCE_DIR}/include)
     add_test(NAME device_parse COMMAND test_device_parse
         "${CMAKE_SOURCE_DIR}/fixtures/bose_device_description.xml")
+    add_test(NAME device_parse_hello_world COMMAND test_device_parse
+        "${CMAKE_SOURCE_DIR}/fixtures/bose_device_hello_world.xml")
 
     add_executable(test_soap tests/test_soap.c src/upnp_soap.c src/upnp_common.c)
     target_include_directories(test_soap PRIVATE ${CMAKE_SOURCE_DIR}/include)
     add_test(NAME soap_build COMMAND test_soap)
 
-    add_executable(test_volume tests/test_volume.c src/upnp_cast.c ${UPNP_COMMON_SOURCES})
+    add_executable(test_volume tests/test_volume.c src/upnp_cast.c src/upnp_display.c
+        ${UPNP_COMMON_SOURCES})
     target_include_directories(test_volume PRIVATE ${CMAKE_SOURCE_DIR}/include)
     add_test(NAME volume_map COMMAND test_volume)
 

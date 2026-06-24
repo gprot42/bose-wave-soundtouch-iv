@@ -214,9 +214,9 @@ typedef struct upnp_demux_sys
 #define UPNP_DEFAULT_CAST_VLC_VOLUME (UPNP_DEFAULT_CAST_VOLUME / 100.f)
 
 #define CAST_PLAY_TIMEOUT (120 * CLOCK_FREQ)
-#define CAST_EOF_MARGIN   (3 * CLOCK_FREQ)
+#define CAST_EOF_MARGIN   (1 * CLOCK_FREQ)
 #define CAST_MIN_PLAY     (5 * CLOCK_FREQ)
-#define CAST_WAIT_DELAY   (CLOCK_FREQ / 2)
+#define CAST_WAIT_DELAY   (CLOCK_FREQ / 10)
 
 enum {
     CAST_START_OK = VLC_SUCCESS,
@@ -242,6 +242,7 @@ static const char *get_source_uri(demux_t *demux);
 static void resolve_display_title(demux_t *demux, upnp_demux_sys_t *sys,
                                   const char *source);
 static void push_display_title(demux_t *demux, upnp_demux_sys_t *sys);
+static void clear_display_title(upnp_demux_sys_t *sys);
 static void maybe_refresh_display(demux_t *demux, upnp_demux_sys_t *sys);
 
 static void cache_filter_input(demux_t *demux, upnp_demux_sys_t *sys)
@@ -353,6 +354,7 @@ static void stop_remote_playback(upnp_demux_sys_t *sys)
     if (!sys->track_active && !sys->session->casting && sys->session->httpd == NULL)
         return;
 
+    clear_display_title(sys);
     upnp_cast_stop(sys->session);
     sys->stop_sent = true;
 }
@@ -417,6 +419,25 @@ static void push_display_title(demux_t *demux, upnp_demux_sys_t *sys)
         msg_Dbg(demux, "Display update skipped for %s", host);
 
     sys->last_display_push = mdate();
+}
+
+static void clear_display_title(upnp_demux_sys_t *sys)
+{
+    const char *host;
+
+    if (sys == NULL || sys->session == NULL)
+        return;
+
+    host = sys->session->device.host;
+    if (host == NULL || host[0] == '\0')
+        return;
+
+    if (upnp_display_clear(host) == 0)
+        msg_Info(sys->demux, "Display cleared");
+    else
+        msg_Dbg(sys->demux, "Display clear skipped for %s", host);
+
+    sys->last_display_push = 0;
 }
 
 static void maybe_refresh_display(demux_t *demux, upnp_demux_sys_t *sys)
@@ -679,7 +700,9 @@ static bool cast_playback_ended(upnp_demux_sys_t *sys, const char *state)
      && mdate() - sys->play_confirmed_at < CAST_MIN_PLAY)
         return false;
 
-    if (sys->length > CAST_EOF_MARGIN
+    /* Local file drained + renderer stopped: advance without waiting on position. */
+    if (!sys->local_eof
+     && sys->length > CAST_EOF_MARGIN
      && sys->time + CAST_EOF_MARGIN < sys->length)
         return false;
 
@@ -744,7 +767,7 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
         upnp_av_stop(sys->session->device.av_control);
         sys->session->casting = false;
         sys->session->active_source[0] = '\0';
-        usleep(500000);
+        usleep(UPNP_CAST_SETTLE_US);
     }
     else if (renderer_is_busy(sys->session))
     {
@@ -752,10 +775,12 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
         upnp_av_stop(sys->session->device.av_control);
         sys->session->casting = false;
         sys->session->active_source[0] = '\0';
-        usleep(500000);
+        usleep(UPNP_CAST_SETTLE_US);
     }
 
-    if (upnp_cast_start(sys->session, source) != 0)
+    resolve_display_title(demux, sys, source);
+
+    if (upnp_cast_start(sys->session, source, sys->display_title) != 0)
     {
         msg_Err(demux, "Failed to cast '%s' to UPnP renderer", source);
         return CAST_START_ERR;
@@ -774,7 +799,6 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
     probe_length_from_next(demux, sys);
     probe_length_from_uri(source, sys);
 
-    resolve_display_title(demux, sys, source);
     push_display_title(demux, sys);
 
     sys->pending_default_volume = true;
@@ -793,6 +817,7 @@ static int start_cast(demux_t *demux, upnp_demux_sys_t *sys)
 
 static void reset_track_state(upnp_demux_sys_t *sys)
 {
+    clear_display_title(sys);
     sys->track_active = false;
     sys->seen_playing = false;
     sys->renderer_confirmed = false;

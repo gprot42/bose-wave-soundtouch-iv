@@ -20,6 +20,9 @@
 
 #define UPNP_DEFAULT_PORT       8091
 
+/* Pause after Stop/SetURI so the renderer can settle before Play. */
+#define UPNP_CAST_SETTLE_US     150000
+
 typedef struct upnp_device
 {
     char *location;

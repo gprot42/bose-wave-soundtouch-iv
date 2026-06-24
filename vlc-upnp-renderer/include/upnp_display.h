@@ -14,4 +14,7 @@ void upnp_display_title_from_source(const char *source, char *out, size_t outlen
 /* Push title to the remote-display buffer (abl rdset / abl rdsend). */
 int upnp_display_push_title(const char *host, const char *title);
 
+/* Blank all remote-display fields and push to the VFD. */
+int upnp_display_clear(const char *host);
+
 #endif /* UPNP_DISPLAY_H */

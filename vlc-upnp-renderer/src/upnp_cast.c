@@ -3,6 +3,7 @@
  */
 #include "upnp_cast.h"
 #include "upnp_device.h"
+#include "upnp_display.h"
 #include "upnp_soap.h"
 
 #include <stdio.h>
@@ -79,12 +80,14 @@ static int path_from_file_uri(const char *uri, char *out, size_t outlen)
     return -1;
 }
 
-int upnp_cast_start(upnp_cast_session_t *s, const char *source_path)
+int upnp_cast_start(upnp_cast_session_t *s, const char *source_path,
+                    const char *title)
 {
     if (s == NULL || source_path == NULL || s->device.av_control == NULL)
         return -1;
 
     char local_path[4096];
+    char shown_title[256];
     const char *media_url = source_path;
 
     if (strncmp(source_path, "http://", 7) == 0 ||
@@ -115,10 +118,20 @@ int upnp_cast_start(upnp_cast_session_t *s, const char *source_path)
     if (s->casting && s->device.av_control != NULL)
         upnp_av_stop(s->device.av_control);
 
-    if (upnp_av_set_uri(s->device.av_control, media_url) != 0)
+    if (title != NULL && title[0] != '\0')
+    {
+        strncpy(shown_title, title, sizeof(shown_title) - 1);
+        shown_title[sizeof(shown_title) - 1] = '\0';
+    }
+    else
+    {
+        upnp_display_title_from_source(source_path, shown_title, sizeof(shown_title));
+    }
+
+    if (upnp_av_set_uri(s->device.av_control, media_url, shown_title, NULL, NULL) != 0)
         return -1;
 
-    usleep(500000);
+    usleep(UPNP_CAST_SETTLE_US);
 
     if (upnp_av_play(s->device.av_control) != 0)
         return -1;

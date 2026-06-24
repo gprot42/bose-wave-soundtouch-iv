@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+    <specVersion>
+        <major>1</major>
+        <minor>0</minor>
+    </specVersion>
+    <device>
+        <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+        <friendlyName>Hello World</friendlyName>
+        <qq:X_QPlay_SoftwareCapability xmlns:qq="http://www.tencent.com">QPlay:2</qq:X_QPlay_SoftwareCapability>
+        <manufacturer>Bose Corporation</manufacturer>
+        <manufacturerURL>http://www.bose.com</manufacturerURL>
+        <modelName>Wave SoundTouch</modelName>
+        <modelNumber></modelNumber>
+        <modelDescription>Bose SoundTouch Wireless Streaming Audio Device</modelDescription>
+        <modelURL>http://www.bose.com</modelURL>
+        <serialNumber>7C010A90E9CA</serialNumber>
+        <UDN>uuid:BO5EBO5E-F00D-F00D-FEED-7C010A90E9CA</UDN>
+        <serviceList>
+            <service>
+                <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                <serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>
+                <SCPDURL>/Xml/AVTransport3.xml</SCPDURL>
+                <controlURL>/AVTransport/Control</controlURL>
+                <eventSubURL>/AVTransport/Event</eventSubURL>
+            </service>
+            <service>
+                <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
+                <serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>
+                <SCPDURL>/Xml/RenderingControl3.xml</SCPDURL>
+                <controlURL>/RenderingControl/Control</controlURL>
+                <eventSubURL>/RenderingControl/Event</eventSubURL>
+            </service>
+        </serviceList>
+    </device>
+</root>

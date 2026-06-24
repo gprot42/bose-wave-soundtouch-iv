@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -245,19 +246,123 @@ int upnp_soap_call(const char *control_url, const char *service_type,
                           response, resplen);
 }
 
-int upnp_av_set_uri(const char *av_control, const char *media_url)
+static const char *guess_audio_mime(const char *label, const char *url)
 {
-    char escaped[2048];
-    char args[4096];
+    static const struct
+    {
+        const char *ext;
+        const char *mime;
+    } map[] = {
+        { ".aac",  "audio/aac" },
+        { ".flac", "audio/flac" },
+        { ".m4a",  "audio/mp4" },
+        { ".mp3",  "audio/mpeg" },
+        { ".ogg",  "audio/ogg" },
+        { ".opus", "audio/opus" },
+        { ".wav",  "audio/wav" },
+        { ".wma",  "audio/x-ms-wma" },
+        { NULL, NULL },
+    };
 
-    if (media_url == NULL || xml_escape_append(media_url, escaped, sizeof(escaped)) != 0)
+    for (const char *const *candidate = (const char *const[]){ label, url, NULL };
+         *candidate != NULL; candidate++)
+    {
+        const char *name = *candidate;
+        if (name == NULL || name[0] == '\0')
+            continue;
+
+        const char *dot = strrchr(name, '.');
+        if (dot == NULL)
+            continue;
+
+        for (size_t i = 0; map[i].ext != NULL; i++)
+        {
+            if (strcasecmp(dot, map[i].ext) == 0)
+                return map[i].mime;
+        }
+    }
+
+    return "audio/mpeg";
+}
+
+int upnp_build_didl_metadata(const char *title, const char *media_url,
+                             const char *artist, const char *album,
+                             const char *mime, char *out, size_t outlen)
+{
+    char didl[4096];
+    char esc_title[512];
+    char esc_url[4096];
+    char esc_artist[512];
+    char esc_album[512];
+    char esc_mime[64];
+    int didl_len;
+
+    if (out == NULL || outlen == 0 || media_url == NULL || title == NULL)
         return -1;
+
+    if (xml_escape_append(title, esc_title, sizeof(esc_title)) != 0
+     || xml_escape_append(media_url, esc_url, sizeof(esc_url)) != 0
+     || xml_escape_append(mime != NULL ? mime : "audio/mpeg",
+                          esc_mime, sizeof(esc_mime)) != 0)
+        return -1;
+
+    didl_len = snprintf(didl, sizeof(didl),
+        "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" "
+        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+        "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">"
+        "<item id=\"0\" parentID=\"-1\" restricted=\"1\">"
+        "<dc:title>%s</dc:title>",
+        esc_title);
+
+    if (artist != NULL && artist[0] != '\0'
+     && xml_escape_append(artist, esc_artist, sizeof(esc_artist)) == 0)
+    {
+        didl_len += snprintf(didl + didl_len, sizeof(didl) - (size_t)didl_len,
+            "<dc:creator>%s</dc:creator>", esc_artist);
+    }
+
+    if (album != NULL && album[0] != '\0'
+     && xml_escape_append(album, esc_album, sizeof(esc_album)) == 0)
+    {
+        didl_len += snprintf(didl + didl_len, sizeof(didl) - (size_t)didl_len,
+            "<upnp:album>%s</upnp:album>", esc_album);
+    }
+
+    didl_len += snprintf(didl + didl_len, sizeof(didl) - (size_t)didl_len,
+        "<upnp:class>object.item.audioItem.musicTrack</upnp:class>"
+        "<res protocolInfo=\"http-get:*:%s:*\">%s</res>"
+        "</item></DIDL-Lite>",
+        esc_mime, esc_url);
+
+    if (didl_len <= 0 || (size_t)didl_len >= sizeof(didl))
+        return -1;
+
+    return xml_escape_append(didl, out, outlen);
+}
+
+int upnp_av_set_uri(const char *av_control, const char *media_url,
+                    const char *title, const char *artist, const char *album)
+{
+    char escaped_uri[2048];
+    char metadata[8192];
+    char args[12288];
+
+    if (media_url == NULL || xml_escape_append(media_url, escaped_uri, sizeof(escaped_uri)) != 0)
+        return -1;
+
+    if (title == NULL || title[0] == '\0'
+     || upnp_build_didl_metadata(title, media_url, artist, album,
+                                 guess_audio_mime(title, media_url),
+                                 metadata, sizeof(metadata)) != 0)
+    {
+        metadata[0] = '\0';
+    }
 
     snprintf(args, sizeof(args),
         "<InstanceID>0</InstanceID>"
         "<CurrentURI>%s</CurrentURI>"
-        "<CurrentURIMetaData></CurrentURIMetaData>",
-        escaped);
+        "<CurrentURIMetaData>%s</CurrentURIMetaData>",
+        escaped_uri, metadata);
     return upnp_soap_call(av_control, UPNP_AV_TRANSPORT_SVC,
                           "SetAVTransportURI", args, NULL, 0);
 }
