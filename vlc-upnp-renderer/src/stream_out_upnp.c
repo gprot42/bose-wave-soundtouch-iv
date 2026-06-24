@@ -378,6 +378,46 @@ static void update_position_from_renderer(upnp_demux_sys_t *sys)
         sys->length = ticks;
 }
 
+static void ensure_cast_length(demux_t *demux, upnp_demux_sys_t *sys)
+{
+    if (sys->length > 0)
+        return;
+
+    probe_length_from_next(demux, sys);
+    if (sys->length > 0)
+        return;
+
+    update_position_from_renderer(sys);
+}
+
+static int seek_remote_playback(demux_t *demux, upnp_demux_sys_t *sys,
+                                int64_t time)
+{
+    if (!sys->track_active || sys->session->device.av_control == NULL)
+        return VLC_EGENERIC;
+
+    if (time < 0)
+        time = 0;
+    if (sys->length > 0 && time > sys->length)
+        time = sys->length;
+
+    int sec = (int)(time / CLOCK_FREQ);
+    int min = sec / 60;
+    sec %= 60;
+    int hour = min / 60;
+    min %= 60;
+
+    char target[32];
+    snprintf(target, sizeof(target), "%02d:%02d:%02d", hour, min, sec);
+
+    if (upnp_av_seek_rel(sys->session->device.av_control, target) != 0)
+        return VLC_EGENERIC;
+
+    sys->time = time;
+    push_playback_times(demux, sys);
+    return VLC_SUCCESS;
+}
+
 static void resolve_display_title(demux_t *demux, upnp_demux_sys_t *sys,
                                   const char *source)
 {
@@ -1191,16 +1231,42 @@ static int DemuxControl(demux_t *demux, int query, va_list args)
             bool precise = va_arg(args, int);
             VLC_UNUSED(precise);
 
-            int sec = (int)(time / CLOCK_FREQ);
-            int min = sec / 60;
-            sec %= 60;
-            int hour = min / 60;
-            min %= 60;
+            if (!sys->track_active)
+                break;
 
-            char target[32];
-            snprintf(target, sizeof(target), "%02d:%02d:%02d", hour, min, sec);
-            upnp_av_seek_rel(sys->session->device.av_control, target);
-            sys->time = time;
+            ensure_cast_length(demux, sys);
+
+            int ret = seek_remote_playback(demux, sys, time);
+            if (ret != VLC_SUCCESS)
+                return ret;
+
+            if (next != NULL)
+                demux_Control(next, DEMUX_SET_TIME, time, false);
+            return VLC_SUCCESS;
+        }
+
+        case DEMUX_SET_POSITION:
+        {
+            double pos = va_arg(args, double);
+            bool precise = va_arg(args, int);
+            VLC_UNUSED(precise);
+
+            if (!sys->track_active)
+                break;
+
+            ensure_cast_length(demux, sys);
+            if (sys->length <= 0)
+                return VLC_EGENERIC;
+
+            pos = VLC_CLIP(pos, 0.0, 1.0);
+            int64_t time = (int64_t)(pos * (double)sys->length);
+
+            int ret = seek_remote_playback(demux, sys, time);
+            if (ret != VLC_SUCCESS)
+                return ret;
+
+            if (next != NULL)
+                demux_Control(next, DEMUX_SET_POSITION, pos, false);
             return VLC_SUCCESS;
         }
 
