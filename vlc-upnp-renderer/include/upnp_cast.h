@@ -5,6 +5,8 @@
 #ifndef UPNP_CAST_H
 #define UPNP_CAST_H
 
+#include <stdint.h>
+
 #include "upnp_common.h"
 #include "upnp_http_serve.h"
 
@@ -28,7 +30,7 @@ int upnp_cast_session_init(upnp_cast_session_t *s, const char *host,
 void upnp_cast_session_clear(upnp_cast_session_t *s);
 
 int upnp_cast_start(upnp_cast_session_t *s, const char *source_path,
-                    const char *title);
+                    const char *title, int64_t duration_ticks);
 int upnp_cast_stop(upnp_cast_session_t *s);
 
 /* Map VLC playlist volume (0.0–2.0 nominal) to UPnP 0–100. */

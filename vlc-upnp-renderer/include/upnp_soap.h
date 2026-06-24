@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 int upnp_soap_call(const char *control_url, const char *service_type,
                    const char *action, const char *args_xml,
@@ -14,10 +15,12 @@ int upnp_soap_call(const char *control_url, const char *service_type,
 /* Build escaped DIDL-Lite for SetAVTransportURI CurrentURIMetaData. */
 int upnp_build_didl_metadata(const char *title, const char *media_url,
                              const char *artist, const char *album,
-                             const char *mime, char *out, size_t outlen);
+                             const char *mime, int64_t duration_ticks,
+                             char *out, size_t outlen);
 
 int upnp_av_set_uri(const char *av_control, const char *media_url,
-                    const char *title, const char *artist, const char *album);
+                    const char *title, const char *artist, const char *album,
+                    int64_t duration_ticks);
 int upnp_av_play(const char *av_control);
 int upnp_av_stop(const char *av_control);
 int upnp_av_pause(const char *av_control);

@@ -81,7 +81,7 @@ static int path_from_file_uri(const char *uri, char *out, size_t outlen)
 }
 
 int upnp_cast_start(upnp_cast_session_t *s, const char *source_path,
-                    const char *title)
+                    const char *title, int64_t duration_ticks)
 {
     if (s == NULL || source_path == NULL || s->device.av_control == NULL)
         return -1;
@@ -128,7 +128,8 @@ int upnp_cast_start(upnp_cast_session_t *s, const char *source_path,
         upnp_display_title_from_source(source_path, shown_title, sizeof(shown_title));
     }
 
-    if (upnp_av_set_uri(s->device.av_control, media_url, shown_title, NULL, NULL) != 0)
+    if (upnp_av_set_uri(s->device.av_control, media_url, shown_title, NULL, NULL,
+                        duration_ticks) != 0)
         return -1;
 
     usleep(UPNP_CAST_SETTLE_US);

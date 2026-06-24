@@ -287,7 +287,8 @@ static const char *guess_audio_mime(const char *label, const char *url)
 
 int upnp_build_didl_metadata(const char *title, const char *media_url,
                              const char *artist, const char *album,
-                             const char *mime, char *out, size_t outlen)
+                             const char *mime, int64_t duration_ticks,
+                             char *out, size_t outlen)
 {
     char didl[4096];
     char esc_title[512];
@@ -295,6 +296,7 @@ int upnp_build_didl_metadata(const char *title, const char *media_url,
     char esc_artist[512];
     char esc_album[512];
     char esc_mime[64];
+    char duration_hms[32] = "";
     int didl_len;
 
     if (out == NULL || outlen == 0 || media_url == NULL || title == NULL)
@@ -305,6 +307,11 @@ int upnp_build_didl_metadata(const char *title, const char *media_url,
      || xml_escape_append(mime != NULL ? mime : "audio/mpeg",
                           esc_mime, sizeof(esc_mime)) != 0)
         return -1;
+
+    if (duration_ticks > 0
+     && upnp_format_hms_duration(duration_ticks, duration_hms,
+                                 sizeof(duration_hms)) != 0)
+        duration_hms[0] = '\0';
 
     didl_len = snprintf(didl, sizeof(didl),
         "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" "
@@ -328,11 +335,22 @@ int upnp_build_didl_metadata(const char *title, const char *media_url,
             "<upnp:album>%s</upnp:album>", esc_album);
     }
 
-    didl_len += snprintf(didl + didl_len, sizeof(didl) - (size_t)didl_len,
-        "<upnp:class>object.item.audioItem.musicTrack</upnp:class>"
-        "<res protocolInfo=\"http-get:*:%s:*\">%s</res>"
-        "</item></DIDL-Lite>",
-        esc_mime, esc_url);
+    if (duration_hms[0] != '\0')
+    {
+        didl_len += snprintf(didl + didl_len, sizeof(didl) - (size_t)didl_len,
+            "<upnp:class>object.item.audioItem.musicTrack</upnp:class>"
+            "<res protocolInfo=\"http-get:*:%s:*\" duration=\"%s\">%s</res>"
+            "</item></DIDL-Lite>",
+            esc_mime, duration_hms, esc_url);
+    }
+    else
+    {
+        didl_len += snprintf(didl + didl_len, sizeof(didl) - (size_t)didl_len,
+            "<upnp:class>object.item.audioItem.musicTrack</upnp:class>"
+            "<res protocolInfo=\"http-get:*:%s:*\">%s</res>"
+            "</item></DIDL-Lite>",
+            esc_mime, esc_url);
+    }
 
     if (didl_len <= 0 || (size_t)didl_len >= sizeof(didl))
         return -1;
@@ -341,7 +359,8 @@ int upnp_build_didl_metadata(const char *title, const char *media_url,
 }
 
 int upnp_av_set_uri(const char *av_control, const char *media_url,
-                    const char *title, const char *artist, const char *album)
+                    const char *title, const char *artist, const char *album,
+                    int64_t duration_ticks)
 {
     char escaped_uri[2048];
     char metadata[8192];
@@ -353,7 +372,7 @@ int upnp_av_set_uri(const char *av_control, const char *media_url,
     if (title == NULL || title[0] == '\0'
      || upnp_build_didl_metadata(title, media_url, artist, album,
                                  guess_audio_mime(title, media_url),
-                                 metadata, sizeof(metadata)) != 0)
+                                 duration_ticks, metadata, sizeof(metadata)) != 0)
     {
         metadata[0] = '\0';
     }

@@ -207,6 +207,8 @@ typedef struct upnp_demux_sys
     vlc_tick_t play_confirmed_at;
     vlc_tick_t length;
     vlc_tick_t time;
+    vlc_tick_t seek_target;
+    vlc_tick_t seek_until;
 } upnp_demux_sys_t;
 
 #define UPNP_VOLUME_UNSET (-1)
@@ -217,6 +219,9 @@ typedef struct upnp_demux_sys
 #define CAST_EOF_MARGIN   (1 * CLOCK_FREQ)
 #define CAST_MIN_PLAY     (5 * CLOCK_FREQ)
 #define CAST_WAIT_DELAY   (CLOCK_FREQ / 10)
+#define CAST_SEEK_SETTLE_US 50000
+#define CAST_SEEK_PENDING   (3 * CLOCK_FREQ)
+#define CAST_SEEK_TOLERANCE (2 * CLOCK_FREQ)
 
 enum {
     CAST_START_OK = VLC_SUCCESS,
@@ -369,8 +374,28 @@ static void update_position_from_renderer(upnp_demux_sys_t *sys)
                                   rel, sizeof(rel), dur, sizeof(dur)) != 0)
         return;
 
-    int64_t ticks;
-    if (upnp_parse_hms_duration(rel, &ticks) == 0)
+    int64_t ticks = 0;
+    bool have_rel = upnp_parse_hms_duration(rel, &ticks) == 0;
+
+    if (sys->seek_until > 0 && mdate() < sys->seek_until)
+    {
+        if (have_rel)
+        {
+            int64_t diff = ticks - sys->seek_target;
+            if (diff < 0)
+                diff = -diff;
+            if (diff <= CAST_SEEK_TOLERANCE)
+            {
+                sys->seek_until = 0;
+                sys->time = ticks;
+            }
+        }
+        return;
+    }
+
+    sys->seek_until = 0;
+
+    if (have_rel)
         sys->time = ticks;
 
     if (sys->length <= 0 && dur[0] != '\0' && strcmp(dur, "0:00:00") != 0
@@ -387,13 +412,29 @@ static void ensure_cast_length(demux_t *demux, upnp_demux_sys_t *sys)
     if (sys->length > 0)
         return;
 
+    probe_length_from_input(demux, sys);
+    if (sys->length > 0)
+        return;
+
     update_position_from_renderer(sys);
+    if (sys->length > 0)
+        return;
+
+    cache_filter_input(demux, sys);
+    if (sys->input != NULL)
+    {
+        vlc_tick_t len = var_GetInteger(sys->input, "length");
+        if (len > 0)
+            sys->length = len;
+    }
 }
 
 static int seek_remote_playback(demux_t *demux, upnp_demux_sys_t *sys,
                                 int64_t time)
 {
-    if (!sys->track_active || sys->session->device.av_control == NULL)
+    const char *av_control = sys->session->device.av_control;
+
+    if (!sys->track_active || av_control == NULL)
         return VLC_EGENERIC;
 
     if (time < 0)
@@ -401,20 +442,37 @@ static int seek_remote_playback(demux_t *demux, upnp_demux_sys_t *sys,
     if (sys->length > 0 && time > sys->length)
         time = sys->length;
 
-    int sec = (int)(time / CLOCK_FREQ);
-    int min = sec / 60;
-    sec %= 60;
-    int hour = min / 60;
-    min %= 60;
-
     char target[32];
-    snprintf(target, sizeof(target), "%02d:%02d:%02d", hour, min, sec);
-
-    if (upnp_av_seek_rel(sys->session->device.av_control, target) != 0)
+    if (upnp_format_hms_duration(time, target, sizeof(target)) != 0)
         return VLC_EGENERIC;
 
+    bool resume = !sys->renderer_paused;
+    if (resume && upnp_av_pause(av_control) == 0)
+        sys->renderer_paused = true;
+
+    usleep(CAST_SEEK_SETTLE_US);
+
+    int ret = upnp_av_seek_rel(av_control, target);
+    if (ret == 0 && resume)
+    {
+        usleep(CAST_SEEK_SETTLE_US);
+        if (upnp_av_play(av_control) == 0)
+            sys->renderer_paused = false;
+    }
+
+    if (ret != 0)
+    {
+        msg_Warn(demux, "UPnP Seek to %s failed", target);
+        if (resume && sys->renderer_paused && upnp_av_play(av_control) == 0)
+            sys->renderer_paused = false;
+        return VLC_EGENERIC;
+    }
+
+    sys->seek_target = time;
+    sys->seek_until = mdate() + CAST_SEEK_PENDING;
     sys->time = time;
     push_playback_times(demux, sys);
+    msg_Dbg(demux, "UPnP Seek to %s", target);
     return VLC_SUCCESS;
 }
 
@@ -820,7 +878,13 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
 
     resolve_display_title(demux, sys, source);
 
-    if (upnp_cast_start(sys->session, source, sys->display_title) != 0)
+    sys->length = 0;
+    probe_length_from_next(demux, sys);
+    probe_length_from_uri(source, sys);
+    probe_length_from_input(demux, sys);
+
+    if (upnp_cast_start(sys->session, source, sys->display_title,
+                        sys->length) != 0)
     {
         msg_Err(demux, "Failed to cast '%s' to UPnP renderer", source);
         return CAST_START_ERR;
@@ -832,12 +896,11 @@ static int start_cast_uri(demux_t *demux, upnp_demux_sys_t *sys,
     sys->cast_start = mdate();
     sys->play_confirmed_at = 0;
     sys->time = 0;
-    sys->length = 0;
+    sys->seek_target = 0;
+    sys->seek_until = 0;
     sys->stop_sent = false;
     sys->ui_length_set = false;
     sys->last_display_push = 0;
-    probe_length_from_next(demux, sys);
-    probe_length_from_uri(source, sys);
 
     push_display_title(demux, sys);
 
@@ -866,6 +929,8 @@ static void reset_track_state(upnp_demux_sys_t *sys)
     sys->play_confirmed_at = 0;
     sys->time = 0;
     sys->length = 0;
+    sys->seek_target = 0;
+    sys->seek_until = 0;
     sys->ui_length_set = false;
     sys->display_title[0] = '\0';
     sys->last_display_push = 0;

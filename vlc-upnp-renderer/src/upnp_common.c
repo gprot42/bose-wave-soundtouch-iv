@@ -257,6 +257,24 @@ int upnp_parse_hms_duration(const char *hms, int64_t *ticks_out)
     return 0;
 }
 
+int upnp_format_hms_duration(int64_t ticks, char *out, size_t outlen)
+{
+    if (out == NULL || outlen == 0)
+        return -1;
+
+    if (ticks < 0)
+        ticks = 0;
+
+    int total_sec = (int)(ticks / CLOCK_FREQ);
+    int hour = total_sec / 3600;
+    total_sec %= 3600;
+    int min = total_sec / 60;
+    int sec = total_sec % 60;
+
+    int n = snprintf(out, outlen, "%d:%02d:%02d", hour, min, sec);
+    return n > 0 && (size_t)n < outlen ? 0 : -1;
+}
+
 static const int mp3_bitrates[16] = {
     0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0
 };
